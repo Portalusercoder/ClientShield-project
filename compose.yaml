@@ -1,0 +1,81 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: clientshield-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: clientshield
+      POSTGRES_USER: clientshield_dev
+      POSTGRES_PASSWORD: clientshield_dev_password
+    ports:
+      - "5432:5432"
+    volumes:
+      - clientshield_postgres_data:/var/lib/postgresql/data
+    networks:
+      - clientshield_net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U clientshield_dev -d clientshield"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # OWASP ZAP — baseline/passive scanning daemon only (no Active Scan in ClientShield).
+  # Image: ghcr.io/zaproxy/zaproxy:stable
+  # Internal listen: 8080
+  # Host bind (local dev only): 127.0.0.1:8090 — never publish to 0.0.0.0
+  # API key required (ZAP_API_KEY). Do not mount /var/run/docker.sock.
+  zap:
+    image: ghcr.io/zaproxy/zaproxy:stable
+    container_name: clientshield-zap
+    restart: unless-stopped
+    # Official ZAP image runs as user "zap"
+    command:
+      - zap.sh
+      - -daemon
+      - -host
+      - "0.0.0.0"
+      - -port
+      - "8080"
+      - -config
+      - api.disablekey=false
+      - -config
+      - api.key=${ZAP_API_KEY:-change-me-clientshield-zap-dev-key}
+      # Allow API calls from Docker-published localhost bridge + compose network.
+      # Mitigated by: localhost-only host port bind + mandatory API key.
+      - -config
+      - api.addrs.addr.name=.*
+      - -config
+      - api.addrs.addr.regex=true
+      # Host publishes 8090 while ZAP listens on 8080 (Docker Desktop NAT).
+      - -config
+      - network.localServers.mainProxy.behindNat=true
+    environment:
+      ZAP_PORT: "8080"
+    ports:
+      # Local development only — bound to loopback, not the public interface
+      - "127.0.0.1:8090:8080"
+    networks:
+      - clientshield_net
+    mem_limit: 2g
+    cpus: 1.5
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      # ZAP needs time to boot the daemon; application checks /JSON/core/view/version/
+      test: ["CMD-SHELL", "true"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 90s
+
+networks:
+  clientshield_net:
+    name: clientshield_net
+    driver: bridge
+    # Not "internal: true" — ZAP must reach authorized public targets for baseline scans.
+    # Limitation (Docker Desktop): container egress filtering to block cloud metadata /
+    # host services is limited; application SSRF checks still apply before scan start.
+
+volumes:
+  clientshield_postgres_data:

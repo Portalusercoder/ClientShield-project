@@ -1,0 +1,1515 @@
+// Prisma schema for ClientShield multi-tenant cybersecurity platform.
+// Every business resource belongs directly or indirectly to an Organization.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  OWNER
+  ADMIN
+  ANALYST
+  VIEWER
+}
+
+enum AssetType {
+  WEBSITE
+  WEB_APPLICATION
+  API
+  SERVER
+  WORKSTATION
+  NETWORK_DEVICE
+  DOMAIN
+  IOT_DEVICE
+  OTHER
+}
+
+enum AssetCriticality {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum AssetEnvironment {
+  PRODUCTION
+  STAGING
+  DEVELOPMENT
+  OTHER
+}
+
+enum AssetMonitoringStatus {
+  ACTIVE
+  PAUSED
+  INACTIVE
+}
+
+enum AssetAuthorizationStatus {
+  AUTHORIZED
+  PENDING
+  NOT_AUTHORIZED
+}
+
+enum ScanStatus {
+  PENDING
+  QUEUED
+  RUNNING
+  COMPLETED
+  PARTIAL
+  FAILED
+  CANCELLED
+}
+
+enum FindingSeverity {
+  INFO
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum FindingStatus {
+  OPEN
+  VALIDATED
+  IN_PROGRESS
+  RESOLVED
+  ACCEPTED_RISK
+  FALSE_POSITIVE
+}
+
+enum FindingSource {
+  PASSIVE_CHECK
+  OWASP_ZAP
+  MANUAL
+  OTHER
+}
+
+/// Analyst urgency — distinct from scanner Severity.
+enum TriagePriority {
+  P1_CRITICAL
+  P2_HIGH
+  P3_MEDIUM
+  P4_LOW
+  P5_INFORMATIONAL
+}
+
+enum BusinessImpact {
+  LOW
+  MODERATE
+  HIGH
+  CRITICAL
+}
+
+enum ExploitabilityAssessment {
+  UNLIKELY
+  POSSIBLE
+  LIKELY
+  UNKNOWN
+}
+
+enum RemediationComplexity {
+  LOW
+  MEDIUM
+  HIGH
+  UNKNOWN
+}
+
+/// How thoroughly the asset has been assessed by ClientShield checks.
+enum AssessmentCoverage {
+  LIMITED
+  BASIC
+}
+
+enum RemediationStatus {
+  OPEN
+  IN_PROGRESS
+  BLOCKED
+  COMPLETED
+  CANCELLED
+}
+
+enum RemediationPriority {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum IncidentSeverity {
+  CRITICAL
+  HIGH
+  MEDIUM
+  LOW
+  INFO
+}
+
+enum IncidentStatus {
+  OPEN
+  ACKNOWLEDGED
+  INVESTIGATING
+  CONTAINED
+  ERADICATED
+  RECOVERING
+  RESOLVED
+  CLOSED
+}
+
+enum IncidentCategory {
+  MALWARE
+  PHISHING
+  ACCOUNT_COMPROMISE
+  UNAUTHORIZED_ACCESS
+  BRUTE_FORCE
+  DATA_EXPOSURE
+  DATA_EXFILTRATION
+  WEB_ATTACK
+  DENIAL_OF_SERVICE
+  VULNERABILITY_EXPLOITATION
+  SUSPICIOUS_ACTIVITY
+  POLICY_VIOLATION
+  IOT_SECURITY
+  OTHER
+}
+
+enum IncidentSource {
+  MANUAL
+  FINDING
+  WAZUH
+  OWASP_ZAP
+  PASSIVE_CHECK
+  OTHER
+}
+
+enum IncidentDetectionMethod {
+  MANUAL
+  SIEM
+  EDR
+  IDS_IPS
+  VULNERABILITY_SCANNER
+  WEB_MONITORING
+  USER_REPORT
+  OTHER
+}
+
+enum IncidentActivityType {
+  CREATED
+  ACKNOWLEDGED
+  STATUS_CHANGED
+  ASSIGNED
+  SEVERITY_CHANGED
+  NOTE_ADDED
+  FINDING_LINKED
+  FINDING_UNLINKED
+  SECURITY_EVENT_LINKED
+  SECURITY_EVENT_UNLINKED
+  REMEDIATION_LINKED
+  CONTAINMENT_UPDATED
+  ERADICATION_UPDATED
+  RECOVERY_UPDATED
+  INVESTIGATION_UPDATED
+  RESOLUTION_UPDATED
+  LESSONS_UPDATED
+  RESOLVED
+  CLOSED
+  REOPENED
+  PLAYBOOK_ASSIGNED
+  TASK_CREATED
+  TASK_STATUS_CHANGED
+  TASK_ASSIGNED
+  EVIDENCE_ADDED
+  COMMANDER_ASSIGNED
+  LEAD_ANALYST_ASSIGNED
+  POST_INCIDENT_UPDATED
+}
+
+enum PlaybookPhase {
+  INVESTIGATION
+  CONTAINMENT
+  ERADICATION
+  RECOVERY
+  POST_INCIDENT
+}
+
+enum ResponseTaskStatus {
+  TODO
+  IN_PROGRESS
+  BLOCKED
+  COMPLETED
+  SKIPPED
+}
+
+enum ResponseTaskPriority {
+  CRITICAL
+  HIGH
+  MEDIUM
+  LOW
+}
+
+enum EvidenceType {
+  SECURITY_EVENT
+  FINDING
+  LOG
+  SCREENSHOT
+  DOCUMENT
+  FILE
+  NOTE
+  OTHER
+}
+
+enum SecurityEventSource {
+  WAZUH
+}
+
+enum SecurityEventSeverity {
+  CRITICAL
+  HIGH
+  MEDIUM
+  LOW
+  INFO
+}
+
+enum SecurityEventStatus {
+  NEW
+  REVIEWING
+  ACKNOWLEDGED
+  ESCALATED
+  DISMISSED
+}
+
+enum SecurityEventClassification {
+  ACTIONABLE
+  INFORMATIONAL
+  NOISY
+  IGNORED
+}
+
+enum SecurityEventActivityType {
+  CREATED
+  CORRELATED_OCCURRENCE
+  REVIEW_STARTED
+  ACKNOWLEDGED
+  DISMISSED
+  ESCALATED
+  LINKED_TO_INCIDENT
+  UNLINKED_FROM_INCIDENT
+  CLASSIFICATION_CHANGED
+}
+
+enum WazuhProcessedDisposition {
+  EVENT_CREATED
+  EVENT_CORRELATED
+  FILTERED_LEVEL
+  FILTERED_DENYLIST
+  FILTERED_ALLOWLIST
+  MALFORMED
+  DUPLICATE
+}
+
+enum ObservableType {
+  IP_ADDRESS
+  DOMAIN
+  HOSTNAME
+  URL
+  FILE_HASH
+  FILE_PATH
+  PROCESS
+  USERNAME
+  EMAIL
+  OTHER
+}
+
+enum ObservableRole {
+  SOURCE
+  DESTINATION
+  SUBJECT
+  PROCESS
+  FILE
+  NETWORK
+  OTHER
+}
+
+enum CorrelationCandidateStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+  EXPIRED
+}
+
+enum CorrelationConfidence {
+  LOW
+  MEDIUM
+  HIGH
+}
+
+enum InvestigationStatus {
+  OPEN
+  INVESTIGATING
+  CONFIRMED
+  DISMISSED
+  LINKED_TO_INCIDENT
+  CLOSED
+}
+
+enum InvestigationCreatedByType {
+  SYSTEM_SUGGESTED
+  ANALYST_CREATED
+}
+
+enum InvestigationActivityType {
+  CREATED
+  CANDIDATE_ACCEPTED
+  CANDIDATE_REJECTED
+  EVENT_ADDED
+  EVENT_REMOVED
+  INVESTIGATION_STARTED
+  CONFIRMED
+  DISMISSED
+  THREAT_INTEL_LOOKUP
+  LINKED_TO_INCIDENT
+  INCIDENT_CREATED
+  NOTE_ADDED
+}
+
+enum ThreatIntelLookupStatus {
+  PENDING
+  SUCCESS
+  NOT_FOUND
+  ERROR
+}
+
+enum ThreatIntelRiskLevel {
+  UNKNOWN
+  LOW
+  MEDIUM
+  HIGH
+  MALICIOUS
+}
+
+enum ClientStatus {
+  ACTIVE
+  INACTIVE
+  ONBOARDING
+}
+
+model Organization {
+  id        String   @id @default(cuid())
+  name      String
+  slug      String   @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  users            User[]
+  clients          Client[]
+  assets           Asset[]
+  scans            Scan[]
+  findings               Finding[]
+  findingInstances       FindingInstance[]
+  remediationTasks       RemediationTask[]
+  securityScoreSnapshots SecurityScoreSnapshot[]
+  incidents              Incident[]
+  incidentActivities     IncidentActivity[]
+  incidentNotes          IncidentNote[]
+  incidentFindings       IncidentFinding[]
+  incidentCaseSequences  IncidentCaseSequence[]
+  incidentPlaybooks      IncidentPlaybook[]
+  incidentPlaybookInstances IncidentPlaybookInstance[]
+  incidentResponseTasks  IncidentResponseTask[]
+  incidentEvidence       IncidentEvidence[]
+  securityEvents         SecurityEvent[]
+  securityEventActivities SecurityEventActivity[]
+  wazuhAgentMappings     WazuhAgentMapping[]
+  wazuhIngestionStates   WazuhIngestionState[]
+  wazuhProcessedAlerts   WazuhProcessedAlert[]
+  incidentSecurityEvents IncidentSecurityEvent[]
+  securityObservables    SecurityObservable[]
+  securityEventObservables SecurityEventObservable[]
+  correlationCandidates  CorrelationCandidate[]
+  investigationGroups    InvestigationGroup[]
+  investigationGroupEvents InvestigationGroupEvent[]
+  investigationGroupIncidents InvestigationGroupIncident[]
+  investigationActivities InvestigationActivity[]
+  threatIntelLookups     ThreatIntelLookup[]
+  iotDevices             IoTDevice[]
+  reports                Report[]
+  auditLogs              AuditLog[]
+}
+
+model User {
+  id             String   @id @default(cuid())
+  organizationId String
+  email          String
+  name           String?
+  role           UserRole @default(VIEWER)
+  /// External identity provider subject ID (Auth0, Clerk, Azure AD, etc.)
+  externalId     String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization              Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  assignedFindings          Finding[]         @relation("FindingAssignee")
+  acceptedRiskFindings      Finding[]         @relation("FindingRiskApprover")
+  validatedFindings         Finding[]         @relation("FindingValidator")
+  assignedRemediationTasks  RemediationTask[] @relation("RemediationAssignee")
+  createdReports            Report[]          @relation("ReportCreator")
+  assignedIncidents         Incident[]        @relation("IncidentAssignee")
+  createdIncidents          Incident[]        @relation("IncidentCreator")
+  leadAnalystIncidents      Incident[]        @relation("IncidentLeadAnalyst")
+  commanderIncidents        Incident[]        @relation("IncidentCommander")
+  incidentActivities        IncidentActivity[] @relation("IncidentActivityActor")
+  incidentNotes             IncidentNote[]    @relation("IncidentNoteAuthor")
+  incidentFindingLinks      IncidentFinding[] @relation("IncidentFindingLinker")
+  createdPlaybooks          IncidentPlaybook[] @relation("PlaybookCreator")
+  assignedPlaybookInstances IncidentPlaybookInstance[] @relation("PlaybookInstanceAssigner")
+  assignedResponseTasks     IncidentResponseTask[] @relation("ResponseTaskAssignee")
+  completedResponseTasks    IncidentResponseTask[] @relation("ResponseTaskCompleter")
+  createdResponseTasks      IncidentResponseTask[] @relation("ResponseTaskCreator")
+  collectedEvidence         IncidentEvidence[] @relation("EvidenceCollector")
+  securityEventsReviewed    SecurityEvent[]   @relation("SecurityEventReviewer")
+  securityEventsDismissed   SecurityEvent[]   @relation("SecurityEventDismisser")
+  securityEventActivities   SecurityEventActivity[] @relation("SecurityEventActivityActor")
+  wazuhAgentMappings        WazuhAgentMapping[] @relation("WazuhAgentMapper")
+  incidentSecurityEventLinks IncidentSecurityEvent[] @relation("IncidentSecurityEventLinker")
+  investigationGroupsCreated InvestigationGroup[] @relation("InvestigationGroupCreator")
+  investigationActivities   InvestigationActivity[] @relation("InvestigationActivityActor")
+  investigationGroupEventsAdded InvestigationGroupEvent[] @relation("InvestigationGroupEventAdder")
+  threatIntelLookupsRequested ThreatIntelLookup[] @relation("ThreatIntelLookupRequester")
+  correlationCandidatesReviewed CorrelationCandidate[] @relation("CorrelationCandidateReviewer")
+
+  @@unique([organizationId, email])
+  @@index([organizationId])
+  @@index([externalId])
+}
+
+model Client {
+  id                  String       @id @default(cuid())
+  organizationId      String
+  name                String
+  slug                String
+  industry            String?
+  primaryContactName  String?
+  primaryContactEmail String?
+  phone               String?
+  website             String?
+  status              ClientStatus @default(ONBOARDING)
+  securityScore       Float?
+  createdAt           DateTime     @default(now())
+  updatedAt           DateTime     @updatedAt
+
+  organization           Organization            @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  assets                 Asset[]
+  incidents              Incident[]
+  reports                Report[]
+  findings               Finding[]
+  securityScoreSnapshots SecurityScoreSnapshot[]
+  securityEvents         SecurityEvent[]
+  wazuhAgentMappings     WazuhAgentMapping[]
+
+  @@unique([organizationId, slug])
+  @@index([organizationId])
+  @@index([status])
+  @@index([industry])
+}
+
+model Asset {
+  id                  String                    @id @default(cuid())
+  organizationId      String
+  clientId            String
+  name                String
+  type                AssetType
+  /// Full URL for web assets (nullable when hostname is used instead)
+  url                 String?
+  /// Hostname or IP for non-URL assets
+  hostname            String?
+  environment         AssetEnvironment          @default(PRODUCTION)
+  criticality         AssetCriticality          @default(MEDIUM)
+  monitoringStatus    AssetMonitoringStatus     @default(ACTIVE)
+  /// Informational until active scanning is implemented.
+  /// Active security testing must only be allowed when AUTHORIZED.
+  authorizationStatus AssetAuthorizationStatus  @default(PENDING)
+  description         String?
+  securityScore       Float?
+  lastSecurityCheckAt DateTime?
+  createdAt           DateTime                  @default(now())
+  updatedAt           DateTime                  @updatedAt
+
+  organization           Organization            @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  client                 Client                  @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  scans                  Scan[]
+  findings               Finding[]
+  remediationTasks       RemediationTask[]
+  iotDevices             IoTDevice[]
+  securityScoreSnapshots SecurityScoreSnapshot[]
+  incidents              Incident[]
+  securityEvents         SecurityEvent[]
+  wazuhAgentMappings     WazuhAgentMapping[]
+
+  @@index([organizationId])
+  @@index([clientId])
+  @@index([type])
+  @@index([criticality])
+  @@index([monitoringStatus])
+  @@index([authorizationStatus])
+}
+
+model Scan {
+  id             String     @id @default(cuid())
+  organizationId String
+  assetId        String
+  status         ScanStatus @default(PENDING)
+  /// Scan type identifier. Passiveive checks use PASSIVE_WEBSITE. ZAP uses ZAP_BASELINE.
+  scanType       String
+  startedAt      DateTime?
+  completedAt    DateTime?
+  durationMs     Int?
+  overallScore   Float?
+  /// Structured scan results. Never store secrets, cookies, or full sensitive bodies.
+  summary        Json?
+  errorMessage   String?
+  /// Scanner product version when available (e.g. ZAP version string).
+  scannerVersion String?
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  asset        Asset        @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  findings     Finding[]
+  findingInstances FindingInstance[]
+
+  @@index([organizationId])
+  @@index([assetId])
+  @@index([status])
+  @@index([scanType])
+}
+
+model Finding {
+  id                      String         @id @default(cuid())
+  organizationId          String
+  clientId                String?
+  assetId                 String
+  scanId                  String?
+  source                  FindingSource  @default(PASSIVE_CHECK)
+  /// Stable finding code for deduplication (e.g. HSTS_MISSING)
+  code                    String?
+  title                   String
+  description             String?
+  severity                FindingSeverity
+  status                  FindingStatus  @default(OPEN)
+  cvssScore               Float?
+  cveId                   String?
+  /// Sanitized technical evidence only. Never store secrets or cookie values.
+  evidence                Json?
+  remediationGuidance     String?
+  firstDetectedAt         DateTime       @default(now())
+  lastDetectedAt          DateTime       @default(now())
+  resolvedAt              DateTime?
+  assignedToUserId        String?
+  dueDate                 DateTime?
+  /// Required when status is FALSE_POSITIVE or ACCEPTED_RISK (also used for ZAP manual resolve notes)
+  statusReason            String?
+  acceptedRiskApprovedByUserId String?
+  acceptedRiskApprovedAt  DateTime?
+  /// Risk acceptance review / expiration date (UI: Review / Expiration Date)
+  acceptedRiskReviewDate  DateTime?
+  validatedAt             DateTime?
+  validatedByUserId       String?
+  validationNotes         String?
+  analystNotes            String?
+  triagePriority          TriagePriority?
+  businessImpact          BusinessImpact?
+  exploitabilityAssessment ExploitabilityAssessment?
+  remediationComplexity   RemediationComplexity?
+  createdAt               DateTime       @default(now())
+  updatedAt               DateTime       @updatedAt
+
+  organization             Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  client                   Client?           @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  asset                    Asset             @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  scan                     Scan?             @relation(fields: [scanId], references: [id], onDelete: SetNull)
+  assignedTo               User?             @relation("FindingAssignee", fields: [assignedToUserId], references: [id], onDelete: SetNull)
+  acceptedRiskApprovedBy   User?             @relation("FindingRiskApprover", fields: [acceptedRiskApprovedByUserId], references: [id], onDelete: SetNull)
+  validatedBy              User?             @relation("FindingValidator", fields: [validatedByUserId], references: [id], onDelete: SetNull)
+  remediationTasks         RemediationTask[]
+  instances                FindingInstance[]
+  incidentLinks            IncidentFinding[]
+
+  @@index([organizationId])
+  @@index([clientId])
+  @@index([assetId])
+  @@index([severity])
+  @@index([status])
+  @@index([source])
+  @@index([code])
+  @@index([assignedToUserId])
+  @@index([dueDate])
+  @@index([triagePriority])
+  @@index([validatedByUserId])
+  @@index([organizationId, assetId, code])
+}
+
+/**
+ * Historical ClientShield Security Posture Score snapshots.
+ * Used for trends; not a certification or guarantee of security.
+ */
+model SecurityScoreSnapshot {
+  id             String              @id @default(cuid())
+  organizationId String
+  clientId       String?
+  assetId        String?
+  score          Float
+  coverage       AssessmentCoverage?
+  calculatedAt   DateTime            @default(now())
+  reason         String?
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  client       Client?      @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  asset        Asset?       @relation(fields: [assetId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@index([clientId])
+  @@index([assetId])
+  @@index([calculatedAt])
+  @@index([organizationId, assetId, calculatedAt])
+}
+
+/**
+ * Affected location for a Finding (primarily OWASP ZAP URL instances).
+ * The parent Finding represents the underlying issue; instances are locations.
+ */
+model FindingInstance {
+  id               String   @id @default(cuid())
+  organizationId   String
+  findingId        String
+  scanId           String?
+  /// Stable per-finding instance key: path + method + param
+  instanceKey      String
+  url              String?
+  normalizedPath   String
+  httpMethod       String?
+  parameter        String?
+  /// Sanitized location evidence only — never secrets/cookies/tokens.
+  evidence         Json?
+  firstDetectedAt  DateTime @default(now())
+  lastDetectedAt   DateTime @default(now())
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  finding      Finding      @relation(fields: [findingId], references: [id], onDelete: Cascade)
+  scan         Scan?        @relation(fields: [scanId], references: [id], onDelete: SetNull)
+
+  @@unique([findingId, instanceKey])
+  @@index([organizationId])
+  @@index([findingId])
+  @@index([scanId])
+  @@index([normalizedPath])
+  @@index([lastDetectedAt])
+}
+
+model RemediationTask {
+  id               String              @id @default(cuid())
+  organizationId   String
+  findingId        String?
+  assetId          String
+  title            String
+  description      String?
+  notes            String?
+  status           RemediationStatus   @default(OPEN)
+  priority         RemediationPriority @default(MEDIUM)
+  assignedToUserId String?
+  dueDate          DateTime?
+  completedAt      DateTime?
+  createdAt        DateTime            @default(now())
+  updatedAt        DateTime            @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  finding      Finding?     @relation(fields: [findingId], references: [id], onDelete: SetNull)
+  asset        Asset        @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  assignedTo   User?        @relation("RemediationAssignee", fields: [assignedToUserId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId])
+  @@index([assetId])
+  @@index([findingId])
+  @@index([status])
+  @@index([assignedToUserId])
+  @@index([dueDate])
+}
+
+model Incident {
+  id                      String                   @id @default(cuid())
+  organizationId          String
+  clientId                String
+  assetId                 String?
+  /// Human-readable case id: INC-YYYY-NNNNNN (unique per organization)
+  caseNumber              String
+  title                   String
+  description             String?
+  severity                IncidentSeverity
+  status                  IncidentStatus           @default(OPEN)
+  category                IncidentCategory         @default(OTHER)
+  source                  IncidentSource           @default(MANUAL)
+  /// External system identifier (e.g. future Wazuh alert id). Never trust as auth.
+  externalSourceId        String?
+  detectionMethod         IncidentDetectionMethod  @default(MANUAL)
+  occurredAt              DateTime?
+  detectedAt              DateTime                 @default(now())
+  reportedAt              DateTime                 @default(now())
+  acknowledgedAt          DateTime?
+  investigationStartedAt  DateTime?
+  containedAt             DateTime?
+  eradicatedAt            DateTime?
+  recoveringAt            DateTime?
+  resolvedAt              DateTime?
+  closedAt                DateTime?
+  declaredAt              DateTime?
+  assignedToUserId        String?
+  leadAnalystUserId       String?
+  commanderUserId         String?
+  createdByUserId         String?
+  businessImpact          String?
+  technicalImpact         String?
+  impactSummary           String?
+  scopeSummary            String?
+  rootCause               String?
+  containmentSummary      String?
+  eradicationSummary      String?
+  recoverySummary         String?
+  resolutionSummary       String?
+  lessonsLearned          String?
+  whatWentWell            String?
+  whatCouldImprove        String?
+  followUpActions         String?
+  createdAt               DateTime                 @default(now())
+  updatedAt               DateTime                 @updatedAt
+
+  organization Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  client       Client             @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  asset        Asset?             @relation(fields: [assetId], references: [id], onDelete: SetNull)
+  assignedTo   User?              @relation("IncidentAssignee", fields: [assignedToUserId], references: [id], onDelete: SetNull)
+  leadAnalyst  User?              @relation("IncidentLeadAnalyst", fields: [leadAnalystUserId], references: [id], onDelete: SetNull)
+  commander    User?              @relation("IncidentCommander", fields: [commanderUserId], references: [id], onDelete: SetNull)
+  createdBy    User?              @relation("IncidentCreator", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  activities   IncidentActivity[]
+  notes        IncidentNote[]
+  findings     IncidentFinding[]
+  securityEvents IncidentSecurityEvent[]
+  playbookInstances IncidentPlaybookInstance[]
+  responseTasks IncidentResponseTask[]
+  evidence     IncidentEvidence[]
+  investigationGroupIncidents InvestigationGroupIncident[]
+  reports      Report[]
+
+  @@unique([organizationId, caseNumber])
+  @@index([organizationId])
+  @@index([clientId])
+  @@index([assetId])
+  @@index([status])
+  @@index([severity])
+  @@index([category])
+  @@index([source])
+  @@index([assignedToUserId])
+  @@index([leadAnalystUserId])
+  @@index([commanderUserId])
+  @@index([detectedAt])
+  @@index([organizationId, status])
+  @@index([organizationId, externalSourceId])
+}
+
+model IncidentCaseSequence {
+  id             String @id @default(cuid())
+  organizationId String
+  year           Int
+  lastValue      Int    @default(0)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, year])
+  @@index([organizationId])
+}
+
+model IncidentPlaybook {
+  id                String            @id @default(cuid())
+  /// Null = system template available to all orgs
+  organizationId    String?
+  name              String
+  description       String?
+  category          IncidentCategory?
+  severity          IncidentSeverity?
+  isActive          Boolean           @default(true)
+  isSystemTemplate  Boolean           @default(false)
+  createdByUserId   String?
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+
+  organization Organization?              @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdBy    User?                      @relation("PlaybookCreator", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  steps        PlaybookStep[]
+  instances    IncidentPlaybookInstance[]
+
+  @@index([organizationId])
+  @@index([isSystemTemplate])
+  @@index([isActive])
+  @@index([category])
+}
+
+model PlaybookStep {
+  id              String               @id @default(cuid())
+  playbookId      String
+  order           Int
+  phase           PlaybookPhase
+  title           String
+  description     String?
+  isRequired      Boolean              @default(true)
+  defaultPriority ResponseTaskPriority @default(MEDIUM)
+  createdAt       DateTime             @default(now())
+  updatedAt       DateTime             @updatedAt
+
+  playbook IncidentPlaybook @relation(fields: [playbookId], references: [id], onDelete: Cascade)
+
+  @@index([playbookId])
+  @@index([playbookId, order])
+}
+
+model IncidentPlaybookInstance {
+  id                String   @id @default(cuid())
+  organizationId    String
+  incidentId        String
+  sourcePlaybookId  String?
+  playbookName      String
+  assignedAt        DateTime @default(now())
+  assignedByUserId  String?
+
+  organization Organization           @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  incident     Incident               @relation(fields: [incidentId], references: [id], onDelete: Cascade)
+  sourcePlaybook IncidentPlaybook?    @relation(fields: [sourcePlaybookId], references: [id], onDelete: SetNull)
+  assignedBy   User?                  @relation("PlaybookInstanceAssigner", fields: [assignedByUserId], references: [id], onDelete: SetNull)
+  tasks        IncidentResponseTask[]
+
+  @@index([organizationId])
+  @@index([incidentId])
+  @@index([sourcePlaybookId])
+}
+
+model IncidentResponseTask {
+  id                 String               @id @default(cuid())
+  organizationId     String
+  incidentId         String
+  playbookInstanceId String?
+  phase              PlaybookPhase
+  title              String
+  description        String?
+  priority           ResponseTaskPriority @default(MEDIUM)
+  status             ResponseTaskStatus   @default(TODO)
+  isRequired         Boolean              @default(true)
+  assignedToUserId   String?
+  dueAt              DateTime?
+  completedAt        DateTime?
+  completedByUserId  String?
+  completionNote     String?
+  blockedReason      String?
+  skipReason         String?
+  createdByUserId    String?
+  createdAt          DateTime             @default(now())
+  updatedAt          DateTime             @updatedAt
+
+  organization     Organization             @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  incident         Incident                 @relation(fields: [incidentId], references: [id], onDelete: Cascade)
+  playbookInstance IncidentPlaybookInstance? @relation(fields: [playbookInstanceId], references: [id], onDelete: SetNull)
+  assignedTo       User?                    @relation("ResponseTaskAssignee", fields: [assignedToUserId], references: [id], onDelete: SetNull)
+  completedBy      User?                    @relation("ResponseTaskCompleter", fields: [completedByUserId], references: [id], onDelete: SetNull)
+  createdBy        User?                    @relation("ResponseTaskCreator", fields: [createdByUserId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId])
+  @@index([incidentId])
+  @@index([playbookInstanceId])
+  @@index([status])
+  @@index([phase])
+  @@index([assignedToUserId])
+  @@index([organizationId, incidentId])
+}
+
+model IncidentEvidence {
+  id                String       @id @default(cuid())
+  organizationId    String
+  incidentId        String
+  type              EvidenceType
+  title             String
+  description       String?
+  /// e.g. "SECURITY_EVENT" | "FINDING" | "NOTE"
+  sourceType        String?
+  sourceReferenceId String?
+  url               String?
+  fileName          String?
+  mimeType          String?
+  fileSize          Int?
+  storageKey        String?
+  sha256            String?
+  collectedAt       DateTime     @default(now())
+  collectedByUserId String?
+  createdAt         DateTime     @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  incident     Incident     @relation(fields: [incidentId], references: [id], onDelete: Cascade)
+  collectedBy  User?        @relation("EvidenceCollector", fields: [collectedByUserId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId])
+  @@index([incidentId])
+  @@index([type])
+  @@index([incidentId, type, sourceReferenceId])
+}
+
+model IncidentActivity {
+  id             String               @id @default(cuid())
+  organizationId String
+  incidentId     String
+  actorUserId    String?
+  activityType   IncidentActivityType
+  message        String
+  metadata       Json?
+  createdAt      DateTime             @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  incident     Incident     @relation(fields: [incidentId], references: [id], onDelete: Cascade)
+  actor        User?        @relation("IncidentActivityActor", fields: [actorUserId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId])
+  @@index([incidentId])
+  @@index([createdAt])
+  @@index([incidentId, createdAt])
+}
+
+model IncidentNote {
+  id             String   @id @default(cuid())
+  organizationId String
+  incidentId     String
+  authorUserId   String
+  content        String
+  createdAt      DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  incident     Incident     @relation(fields: [incidentId], references: [id], onDelete: Cascade)
+  author       User         @relation("IncidentNoteAuthor", fields: [authorUserId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@index([incidentId])
+  @@index([createdAt])
+}
+
+model IncidentFinding {
+  id             String   @id @default(cuid())
+  organizationId String
+  incidentId     String
+  findingId      String
+  linkedByUserId String?
+  createdAt      DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  incident     Incident     @relation(fields: [incidentId], references: [id], onDelete: Cascade)
+  finding      Finding      @relation(fields: [findingId], references: [id], onDelete: Cascade)
+  linkedBy     User?        @relation("IncidentFindingLinker", fields: [linkedByUserId], references: [id], onDelete: SetNull)
+
+  @@unique([incidentId, findingId])
+  @@index([organizationId])
+  @@index([incidentId])
+  @@index([findingId])
+}
+
+model SecurityEvent {
+  id                 String                @id @default(cuid())
+  organizationId     String
+  clientId           String?
+  assetId            String?
+  source             SecurityEventSource   @default(WAZUH)
+  /// Primary Wazuh document id for the latest contributing alert (display/reference).
+  externalEventId    String?
+  ruleId             String?
+  ruleLevel          Int?
+  ruleDescription    String?
+  ruleGroups         Json?
+  agentId            String?
+  agentName          String?
+  severity           SecurityEventSeverity
+  status             SecurityEventStatus   @default(NEW)
+  classification     SecurityEventClassification @default(ACTIONABLE)
+  title              String
+  summary            String?
+  firstSeenAt        DateTime
+  lastSeenAt         DateTime
+  occurrenceCount    Int                   @default(1)
+  correlationKey     String
+  /// Human-readable explanation of why alerts were grouped (never expose hash as primary UX).
+  correlationSummary String?
+  /// Optional SCA check / policy identifier used for correlation.
+  scaCheckId         String?
+  sourceIp           String?
+  destinationIp      String?
+  sourcePort         Int?
+  destinationPort    Int?
+  protocol           String?
+  /// Optional host/process context extracted from sanitized Wazuh data fields.
+  username           String?
+  processName        String?
+  filePath           String?
+  commandLine        String?
+  mitreTactics       Json?
+  mitreTechniques    Json?
+  pciDss             Json?
+  gdpr               Json?
+  hipaa              Json?
+  nist               Json?
+  rawDataSanitized   Json?
+  reviewedAt         DateTime?
+  reviewedByUserId   String?
+  acknowledgedAt     DateTime?
+  dismissedAt        DateTime?
+  dismissedByUserId  String?
+  dismissalReason    String?
+  createdAt          DateTime              @default(now())
+  updatedAt          DateTime              @updatedAt
+
+  organization Organization             @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  client       Client?                  @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  asset        Asset?                   @relation(fields: [assetId], references: [id], onDelete: SetNull)
+  reviewedBy   User?                    @relation("SecurityEventReviewer", fields: [reviewedByUserId], references: [id], onDelete: SetNull)
+  dismissedBy  User?                    @relation("SecurityEventDismisser", fields: [dismissedByUserId], references: [id], onDelete: SetNull)
+  incidents    IncidentSecurityEvent[]
+  processedAlerts WazuhProcessedAlert[]
+  activities   SecurityEventActivity[]
+  observables  SecurityEventObservable[]
+  correlationCandidatesAsA CorrelationCandidate[] @relation("CorrelationEventA")
+  correlationCandidatesAsB CorrelationCandidate[] @relation("CorrelationEventB")
+  investigationGroupEvents InvestigationGroupEvent[]
+
+  @@index([organizationId])
+  @@index([clientId])
+  @@index([assetId])
+  @@index([status])
+  @@index([severity])
+  @@index([classification])
+  @@index([source])
+  @@index([ruleId])
+  @@index([agentId])
+  @@index([lastSeenAt])
+  @@index([organizationId, correlationKey])
+  @@index([organizationId, status])
+  @@index([organizationId, lastSeenAt])
+  @@index([organizationId, classification])
+}
+
+model SecurityEventActivity {
+  id              String                    @id @default(cuid())
+  organizationId  String
+  securityEventId String
+  actorUserId     String?
+  activityType    SecurityEventActivityType
+  message         String
+  note            String?
+  metadata        Json?
+  createdAt       DateTime                  @default(now())
+
+  organization  Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  securityEvent SecurityEvent @relation(fields: [securityEventId], references: [id], onDelete: Cascade)
+  actor         User?         @relation("SecurityEventActivityActor", fields: [actorUserId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId])
+  @@index([securityEventId])
+  @@index([createdAt])
+  @@index([securityEventId, createdAt])
+  @@index([securityEventId, activityType])
+}
+
+model IncidentSecurityEvent {
+  id              String   @id @default(cuid())
+  organizationId  String
+  incidentId      String
+  securityEventId String
+  linkedByUserId  String?
+  createdAt       DateTime @default(now())
+
+  organization  Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  incident      Incident      @relation(fields: [incidentId], references: [id], onDelete: Cascade)
+  securityEvent SecurityEvent @relation(fields: [securityEventId], references: [id], onDelete: Cascade)
+  linkedBy      User?         @relation("IncidentSecurityEventLinker", fields: [linkedByUserId], references: [id], onDelete: SetNull)
+
+  @@unique([incidentId, securityEventId])
+  @@index([organizationId])
+  @@index([incidentId])
+  @@index([securityEventId])
+}
+
+model WazuhAgentMapping {
+  id               String    @id @default(cuid())
+  organizationId   String
+  wazuhAgentId     String
+  wazuhAgentName   String?
+  clientId         String?
+  assetId          String?
+  lastKnownStatus  String?
+  lastSeenAt       DateTime?
+  mappedByUserId   String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  client       Client?      @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  asset        Asset?       @relation(fields: [assetId], references: [id], onDelete: SetNull)
+  mappedBy     User?        @relation("WazuhAgentMapper", fields: [mappedByUserId], references: [id], onDelete: SetNull)
+
+  @@unique([organizationId, wazuhAgentId])
+  @@index([organizationId])
+  @@index([clientId])
+  @@index([assetId])
+}
+
+model WazuhIngestionState {
+  id                   String    @id @default(cuid())
+  organizationId       String    @unique
+  lastTimestamp        DateTime?
+  lastDocumentId       String?
+  lastSuccessfulSyncAt DateTime?
+  lastAttemptAt        DateTime?
+  lastError            String?
+  /// Cross-process sync lease holder (manual UI or worker id).
+  lockedBy             String?
+  lockedAt             DateTime?
+  lockExpiresAt        DateTime?
+  /// Background worker heartbeat (optional).
+  workerId             String?
+  workerLastHeartbeatAt DateTime?
+  /// Last sync counters (overwrite each run; not historical fabrications).
+  lastSyncDurationMs   Int?
+  lastSyncProcessed    Int?
+  lastSyncCreated      Int?
+  lastSyncUpdated      Int?
+  lastSyncFiltered     Int?
+  lastSyncIgnored      Int?
+  lastSyncSkippedDuplicates Int?
+  lastSyncErrors       Int?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+}
+
+/// Idempotency ledger for processed Wazuh Indexer documents.
+model WazuhProcessedAlert {
+  id              String                    @id @default(cuid())
+  organizationId  String
+  documentId      String
+  securityEventId String?
+  alertTimestamp  DateTime?
+  disposition     WazuhProcessedDisposition?
+  filterReason    String?
+  createdAt       DateTime                  @default(now())
+
+  organization  Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  securityEvent SecurityEvent? @relation(fields: [securityEventId], references: [id], onDelete: SetNull)
+
+  @@unique([organizationId, documentId])
+  @@index([organizationId])
+  @@index([securityEventId])
+  @@index([organizationId, createdAt])
+  @@index([disposition])
+}
+
+/**
+ * Org-scoped IOC / observable extracted from security events.
+ * normalizedValue is the canonical form used for matching within an organization.
+ */
+model SecurityObservable {
+  id              String         @id @default(cuid())
+  organizationId  String
+  type            ObservableType
+  /// Original display value (sanitized; never secrets).
+  value           String
+  /// Canonical form for uniqueness / correlation (lowercase IP, domain, etc.).
+  normalizedValue String
+  firstSeenAt     DateTime       @default(now())
+  lastSeenAt      DateTime       @default(now())
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+
+  organization Organization             @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  eventLinks   SecurityEventObservable[]
+  threatIntelLookups ThreatIntelLookup[]
+
+  @@unique([organizationId, type, normalizedValue])
+  @@index([organizationId])
+  @@index([type])
+  @@index([organizationId, type])
+  @@index([lastSeenAt])
+}
+
+model SecurityEventObservable {
+  id              String         @id @default(cuid())
+  organizationId  String
+  securityEventId String
+  observableId    String
+  role            ObservableRole @default(OTHER)
+  createdAt       DateTime       @default(now())
+
+  organization  Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  securityEvent SecurityEvent     @relation(fields: [securityEventId], references: [id], onDelete: Cascade)
+  observable    SecurityObservable @relation(fields: [observableId], references: [id], onDelete: Cascade)
+
+  @@unique([securityEventId, observableId, role])
+  @@index([organizationId])
+  @@index([securityEventId])
+  @@index([observableId])
+}
+
+/**
+ * Cross-event correlation suggestion (distinct from Wazuh occurrence correlation).
+ * eventAId < eventBId is enforced in the service layer for the unique constraint.
+ */
+model CorrelationCandidate {
+  id                   String                     @id @default(cuid())
+  organizationId       String
+  eventAId             String
+  eventBId             String
+  score                Int
+  confidence           CorrelationConfidence
+  /// Human-readable reason strings explaining the score.
+  reasons              Json
+  status               CorrelationCandidateStatus @default(PENDING)
+  investigationGroupId String?
+  reviewedByUserId     String?
+  reviewedAt           DateTime?
+  rejectReason         String?
+  expiresAt            DateTime?
+  createdAt            DateTime                   @default(now())
+  updatedAt            DateTime                   @updatedAt
+
+  organization       Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  eventA             SecurityEvent      @relation("CorrelationEventA", fields: [eventAId], references: [id], onDelete: Cascade)
+  eventB             SecurityEvent      @relation("CorrelationEventB", fields: [eventBId], references: [id], onDelete: Cascade)
+  investigationGroup InvestigationGroup? @relation(fields: [investigationGroupId], references: [id], onDelete: SetNull)
+  reviewedBy         User?              @relation("CorrelationCandidateReviewer", fields: [reviewedByUserId], references: [id], onDelete: SetNull)
+
+  @@unique([organizationId, eventAId, eventBId])
+  @@index([organizationId])
+  @@index([eventAId])
+  @@index([eventBId])
+  @@index([status])
+  @@index([confidence])
+  @@index([organizationId, status])
+  @@index([investigationGroupId])
+}
+
+model InvestigationGroup {
+  id                   String                      @id @default(cuid())
+  organizationId       String
+  clientId             String?
+  assetId              String?
+  title                String
+  summary              String?
+  status               InvestigationStatus         @default(OPEN)
+  severity             IncidentSeverity            @default(MEDIUM)
+  createdByType        InvestigationCreatedByType
+  createdByUserId      String?
+  /// Human-readable explanation of why events were grouped.
+  groupingExplanation  String?
+  mitreTactics         Json?
+  mitreTechniques      Json?
+  confirmedAt          DateTime?
+  dismissedAt          DateTime?
+  dismissReason        String?
+  createdAt            DateTime                    @default(now())
+  updatedAt            DateTime                    @updatedAt
+
+  organization Organization                @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdBy    User?                       @relation("InvestigationGroupCreator", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  events       InvestigationGroupEvent[]
+  incidents    InvestigationGroupIncident[]
+  activities   InvestigationActivity[]
+  correlationCandidates CorrelationCandidate[]
+
+  @@index([organizationId])
+  @@index([status])
+  @@index([severity])
+  @@index([createdByType])
+  @@index([organizationId, status])
+  @@index([createdAt])
+}
+
+model InvestigationGroupEvent {
+  id              String    @id @default(cuid())
+  organizationId  String
+  groupId         String
+  securityEventId String
+  addedByUserId   String?
+  addedAt         DateTime  @default(now())
+  removedAt       DateTime?
+  removeReason    String?
+
+  organization  Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  group         InvestigationGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  securityEvent SecurityEvent     @relation(fields: [securityEventId], references: [id], onDelete: Cascade)
+  addedBy       User?             @relation("InvestigationGroupEventAdder", fields: [addedByUserId], references: [id], onDelete: SetNull)
+
+  @@unique([groupId, securityEventId])
+  @@index([organizationId])
+  @@index([groupId])
+  @@index([securityEventId])
+}
+
+model InvestigationGroupIncident {
+  id             String   @id @default(cuid())
+  organizationId String
+  groupId        String
+  incidentId     String
+  linkedByUserId String?
+  createdAt      DateTime @default(now())
+
+  organization Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  group        InvestigationGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  incident     Incident          @relation(fields: [incidentId], references: [id], onDelete: Cascade)
+
+  @@unique([groupId, incidentId])
+  @@index([organizationId])
+  @@index([groupId])
+  @@index([incidentId])
+}
+
+model InvestigationActivity {
+  id             String                    @id @default(cuid())
+  organizationId String
+  groupId        String
+  actorUserId    String?
+  activityType   InvestigationActivityType
+  message        String
+  note           String?
+  metadata       Json?
+  createdAt      DateTime                  @default(now())
+
+  organization Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  group        InvestigationGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  actor        User?             @relation("InvestigationActivityActor", fields: [actorUserId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId])
+  @@index([groupId])
+  @@index([createdAt])
+  @@index([groupId, createdAt])
+}
+
+model ThreatIntelLookup {
+  id                    String                   @id @default(cuid())
+  organizationId        String
+  observableId          String
+  provider              String
+  status                ThreatIntelLookupStatus  @default(PENDING)
+  riskLevel             ThreatIntelRiskLevel?
+  confidence            Float?
+  summary               String?
+  /// Sanitized provider response — never store secrets or full raw bodies with PII dumps.
+  rawResponseSanitized  Json?
+  lookedUpAt            DateTime                 @default(now())
+  expiresAt             DateTime?
+  requestedByUserId     String?
+  createdAt             DateTime                 @default(now())
+
+  organization Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  observable   SecurityObservable @relation(fields: [observableId], references: [id], onDelete: Cascade)
+  requestedBy  User?             @relation("ThreatIntelLookupRequester", fields: [requestedByUserId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId])
+  @@index([observableId])
+  @@index([provider])
+  @@index([status])
+  @@index([organizationId, observableId, provider])
+  @@index([expiresAt])
+}
+
+model IoTDevice {
+  id              String    @id @default(cuid())
+  organizationId  String
+  assetId         String?
+  name            String
+  deviceType      String?
+  firmwareVersion String?
+  ipAddress       String?
+  isOnline        Boolean   @default(false)
+  lastSeenAt      DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  asset        Asset?       @relation(fields: [assetId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId])
+  @@index([assetId])
+}
+
+enum ReportType {
+  EXECUTIVE_SUMMARY
+  SECURITY_POSTURE
+  TECHNICAL_FINDINGS
+  REMEDIATION_STATUS
+  INCIDENT_CASE
+}
+
+enum ReportStatus {
+  DRAFT
+  GENERATING
+  READY
+  FAILED
+  ARCHIVED
+}
+
+model Report {
+  id                   String       @id @default(cuid())
+  organizationId       String
+  clientId             String
+  incidentId           String?
+  createdByUserId      String?
+  reportType           ReportType   @default(SECURITY_POSTURE)
+  title                String
+  reportingPeriodStart DateTime
+  reportingPeriodEnd   DateTime
+  status               ReportStatus @default(DRAFT)
+  generatedAt          DateTime?
+  /// Immutable structured snapshot used for preview/PDF. Never mutate after READY.
+  generatedData        Json?
+  fileName             String?
+  /// Storage key relative to report storage root — never a user-supplied path.
+  storageKey           String?
+  version              Int          @default(1)
+  errorSummary         String?
+  createdAt            DateTime     @default(now())
+  updatedAt            DateTime     @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  client       Client       @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  incident     Incident?    @relation(fields: [incidentId], references: [id], onDelete: SetNull)
+  createdBy    User?        @relation("ReportCreator", fields: [createdByUserId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId])
+  @@index([clientId])
+  @@index([incidentId])
+  @@index([status])
+  @@index([reportType])
+  @@index([generatedAt])
+  @@index([organizationId, clientId, reportType])
+}
+
+
+model AuditLog {
+  id             String   @id @default(cuid())
+  organizationId String
+  action         String
+  resourceType   String
+  resourceId     String?
+  actorId        String?
+  metadata       Json?
+  createdAt      DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@index([createdAt])
+  @@index([resourceType])
+}
