@@ -14,6 +14,8 @@ const PAGE_TITLES: Record<string, string> = {
   "/iot-devices": "IoT Devices",
   "/reports": "Reports",
   "/settings": "Settings",
+  "/settings/users": "Organization Users",
+  "/investigations": "Investigations",
 };
 
 function getPageTitle(pathname: string): string {

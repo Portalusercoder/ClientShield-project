@@ -16,6 +16,32 @@ export {
 } from "@/lib/validations/clients";
 
 export {
+  clientContactTypeSchema,
+  clientServiceTypeSchema,
+  clientServiceStatusSchema,
+  clientOnboardingStatusSchema,
+  clientOnboardingStepSchema,
+  clientLifecycleStatusSchema,
+  createClientContactSchema,
+  updateClientContactSchema,
+  setClientServiceSchema,
+  enableClientServiceSchema,
+  clientServiceActionSchema,
+  updateOnboardingStepSchema,
+  transitionClientStatusSchema,
+  organizationSettingsSchema,
+  clientActivityFiltersSchema,
+  type CreateClientContactInput,
+  type UpdateClientContactInput,
+  type SetClientServiceInput,
+  type EnableClientServiceInput,
+  type UpdateOnboardingStepInput,
+  type TransitionClientStatusInput,
+  type OrganizationSettingsInput,
+  type ClientActivityFiltersInput,
+} from "@/lib/validations/client-onboarding";
+
+export {
   assetTypeSchema,
   createAssetSchema,
   updateAssetSchema,

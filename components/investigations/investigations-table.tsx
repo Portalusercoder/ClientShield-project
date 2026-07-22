@@ -31,7 +31,11 @@ export function InvestigationsTable({
             <th className="px-4 py-3 font-medium">Status</th>
             <th className="px-4 py-3 font-medium">Severity</th>
             <th className="px-4 py-3 font-medium">Source</th>
+            <th className="px-4 py-3 font-medium">Confidence</th>
             <th className="px-4 py-3 font-medium">Events</th>
+            <th className="px-4 py-3 font-medium">Actionable</th>
+            <th className="px-4 py-3 font-medium">Noisy</th>
+            <th className="px-4 py-3 font-medium">Rules</th>
             <th className="px-4 py-3 font-medium">First / Last</th>
             <th className="px-4 py-3 font-medium">Explanation</th>
           </tr>
@@ -49,6 +53,11 @@ export function InvestigationsTable({
                 <p className="mt-0.5 text-xs text-muted">
                   Updated {formatRelativeTime(item.updatedAt)}
                 </p>
+                {item.qualityWarning ? (
+                  <p className="mt-1 text-xs text-severity-medium">
+                    {item.qualityWarning}
+                  </p>
+                ) : null}
               </td>
               <td className="px-4 py-3">
                 <InvestigationStatusBadge status={item.status} />
@@ -61,8 +70,20 @@ export function InvestigationsTable({
                   createdByType={item.createdByType}
                 />
               </td>
+              <td className="px-4 py-3 text-xs text-muted">
+                {item.confidence ?? "—"}
+              </td>
               <td className="px-4 py-3 tabular-nums text-muted">
                 {item.eventCount}
+              </td>
+              <td className="px-4 py-3 tabular-nums text-muted">
+                {item.actionableEventCount}
+              </td>
+              <td className="px-4 py-3 tabular-nums text-muted">
+                {item.noisyEventCount}
+              </td>
+              <td className="px-4 py-3 tabular-nums text-muted">
+                {item.distinctRuleCount}
               </td>
               <td className="px-4 py-3 text-xs text-muted">
                 {item.firstSeenAt || item.lastSeenAt ? (

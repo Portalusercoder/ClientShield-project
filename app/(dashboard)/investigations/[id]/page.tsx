@@ -9,6 +9,9 @@ import {
   getInvestigationById,
   getInvestigationObservables,
 } from "@/services/investigations/investigation.service";
+import {
+  loadQualityMetricsForGroup,
+} from "@/services/investigations/investigation-quality.service";
 import { isSafeForExternalLookup } from "@/services/investigations/threat-intel.service";
 import type { InvestigationDetailViewModel } from "@/types/investigations";
 
@@ -64,6 +67,11 @@ export default async function InvestigationDetailPage({
 
   if (!group) notFound();
 
+  const qualityMetrics = await loadQualityMetricsForGroup(
+    session.organizationId,
+    group.id
+  );
+
   const storedTactics = asStringArray(group.mitreTactics);
   const storedTechniques = asStringArray(group.mitreTechniques);
   const aggregated =
@@ -76,6 +84,20 @@ export default async function InvestigationDetailPage({
     serverEnv.THREAT_INTEL_ENABLED && serverEnv.THREAT_INTEL_PROVIDER?.trim()
   );
 
+  const explanation = group.groupingExplanation ?? "";
+  const strongSignals = explanation
+    .split(/Strong signals:\s*/i)[1]
+    ?.split(/Supporting:|;/)[0]
+    ?.split(";")
+    .map((s) => s.trim())
+    .filter(Boolean) ?? [];
+  const supportingSignals =
+    explanation
+      .split(/Supporting:\s*/i)[1]
+      ?.split(";")
+      .map((s) => s.trim())
+      .filter(Boolean) ?? [];
+
   const view: InvestigationDetailViewModel = {
     id: group.id,
     title: group.title,
@@ -84,6 +106,11 @@ export default async function InvestigationDetailPage({
     severity: group.severity,
     createdByType: group.createdByType,
     groupingExplanation: group.groupingExplanation,
+    confidence: group.confidence,
+    qualityWarning: group.qualityWarning,
+    qualityMetrics,
+    strongSignals,
+    supportingSignals,
     mitreTactics: aggregated.tactics,
     mitreTechniques: aggregated.techniques,
     confirmedAt: group.confirmedAt,
@@ -153,6 +180,8 @@ export default async function InvestigationDetailPage({
       score: c.score,
       confidence: c.confidence,
       reasons: asStringArray(c.reasons),
+      signalFamilies: asStringArray(c.signalFamilies),
+      qualityFactors: asStringArray(c.qualityFactors),
       status: c.status,
     })),
     linkableIncidents,

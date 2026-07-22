@@ -25,7 +25,7 @@ export default async function OverviewPage() {
   // TODO: Enforce authentication before rendering dashboard.
   const organizationId = await getOrganizationId();
   const data = await getDashboardData(organizationId);
-  const { stats, caseMetrics, investigationMetrics } = data;
+  const { stats, caseMetrics, investigationMetrics, clientManagement } = data;
 
   function formatMeanMs(ms: number | null): string {
     if (ms == null) return "N/A";
@@ -42,11 +42,42 @@ export default async function OverviewPage() {
           <span className="text-muted">
             {" "}
             — Vulnerability Findings, Security Events, Incidents, clients,
-            assets, and security posture are loaded from PostgreSQL. Severity
-            chart (findings mock), clients attention, activity, and remediation
-            metrics remain partially mock where noted.
+            onboarding readiness, assets, and security posture are loaded from
+            PostgreSQL. Severity chart (findings mock), activity, and
+            remediation metrics remain partially mock where noted.
           </span>
         </p>
+      </div>
+
+      <div>
+        <h2 className="mb-3 text-sm font-medium text-muted">
+          Client management
+        </h2>
+        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
+          <StatCard
+            label="Active Clients"
+            value={clientManagement.activeClients}
+          />
+          <StatCard
+            label="Clients Onboarding"
+            value={clientManagement.clientsOnboarding}
+          />
+          <StatCard
+            label="Clients Not Ready"
+            value={clientManagement.clientsNotReady}
+            variant="warning"
+          />
+          <StatCard
+            label="Clients With Critical Findings"
+            value={clientManagement.clientsWithCriticalFindings}
+            variant="critical"
+          />
+          <StatCard
+            label="Clients With Open Incidents"
+            value={clientManagement.clientsWithOpenIncidents}
+            variant="warning"
+          />
+        </div>
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6">

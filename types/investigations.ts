@@ -9,6 +9,22 @@ import type {
   ThreatIntelRiskLevel,
 } from "@prisma/client";
 
+export type InvestigationQualityMetrics = {
+  eventCount: number;
+  actionableEventCount: number;
+  informationalEventCount: number;
+  noisyEventCount: number;
+  ignoredEventCount: number;
+  distinctRuleCount: number;
+  distinctActionableRuleCount: number;
+  distinctAssetCount: number;
+  observableCount: number;
+  strongObservableCount: number;
+  signalFamilyCount: number;
+  firstSeenAt: Date | null;
+  lastSeenAt: Date | null;
+};
+
 export type InvestigationListItem = {
   id: string;
   title: string;
@@ -16,7 +32,12 @@ export type InvestigationListItem = {
   severity: IncidentSeverity;
   createdByType: InvestigationCreatedByType;
   groupingExplanation: string | null;
+  confidence: CorrelationConfidence | null;
+  qualityWarning: string | null;
   eventCount: number;
+  actionableEventCount: number;
+  noisyEventCount: number;
+  distinctRuleCount: number;
   firstSeenAt: Date | null;
   lastSeenAt: Date | null;
   createdAt: Date;
@@ -26,6 +47,7 @@ export type InvestigationListItem = {
 export type InvestigationFilters = {
   status?: InvestigationStatus;
   createdByType?: InvestigationCreatedByType;
+  clientId?: string;
   page?: number;
   pageSize?: number;
 };
@@ -99,10 +121,16 @@ export type InvestigationCandidateRow = {
   id: string;
   eventAId: string;
   eventBId: string;
+  eventATitle?: string;
+  eventBTitle?: string;
   score: number;
   confidence: CorrelationConfidence;
   reasons: string[];
+  signalFamilies?: string[];
+  qualityFactors?: string[];
   status: CorrelationCandidateStatus;
+  createdAt?: Date;
+  expiresAt?: Date | null;
 };
 
 export type InvestigationLinkableIncident = {
@@ -121,6 +149,11 @@ export type InvestigationDetailViewModel = {
   severity: IncidentSeverity;
   createdByType: InvestigationCreatedByType;
   groupingExplanation: string | null;
+  confidence: CorrelationConfidence | null;
+  qualityWarning: string | null;
+  qualityMetrics: InvestigationQualityMetrics | null;
+  strongSignals: string[];
+  supportingSignals: string[];
   mitreTactics: string[];
   mitreTechniques: string[];
   confirmedAt: Date | null;
@@ -153,6 +186,13 @@ export type CorrelationScoreResult = {
   signalCount: number;
   hasHashSignal: boolean;
   hasAssetAndTime: boolean;
+  hasVeryStrongSignal: boolean;
+  signalFamilies: string[];
+  independentFamilyCount: number;
+  qualityFactors: string[];
+  riskFactors: string[];
+  strongSignals: string[];
+  supportingSignals: string[];
 };
 
 export type ThreatIntelLookupResult = {

@@ -100,9 +100,36 @@ const serverEnvSchema = z.object({
     .max(168)
     .default(24),
   /** Minimum confidence to persist a correlation candidate. */
-  INVESTIGATION_MIN_CONFIDENCE: z
+  INVESTIGATION_CANDIDATE_MIN_CONFIDENCE: z
     .enum(["LOW", "MEDIUM", "HIGH"])
     .default("MEDIUM"),
+  /**
+   * Deprecated alias kept for older .env files.
+   * When set without INVESTIGATION_CANDIDATE_MIN_CONFIDENCE, used as candidate min.
+   */
+  INVESTIGATION_MIN_CONFIDENCE: z.enum(["LOW", "MEDIUM", "HIGH"]).optional(),
+  /** Minimum confidence for SYSTEM_SUGGESTED investigation creation. */
+  INVESTIGATION_SUGGESTION_MIN_CONFIDENCE: z
+    .enum(["LOW", "MEDIUM", "HIGH"])
+    .default("HIGH"),
+  INVESTIGATION_MIN_ACTIONABLE_EVENTS: z.coerce
+    .number()
+    .int()
+    .min(1)
+    .max(50)
+    .default(2),
+  INVESTIGATION_MIN_SIGNAL_FAMILIES: z.coerce
+    .number()
+    .int()
+    .min(1)
+    .max(20)
+    .default(2),
+  INVESTIGATION_CANDIDATE_EXPIRY_HOURS: z.coerce
+    .number()
+    .int()
+    .min(1)
+    .max(720)
+    .default(72),
   /** Manual threat-intel lookups (never auto-bulk). Default off. */
   THREAT_INTEL_ENABLED: z
     .enum(["true", "false"])
@@ -178,7 +205,18 @@ export const serverEnv = parseEnv(serverEnvSchema, {
     process.env.INVESTIGATION_CORRELATION_ENABLED,
   INVESTIGATION_CORRELATION_WINDOW_HOURS:
     process.env.INVESTIGATION_CORRELATION_WINDOW_HOURS,
+  INVESTIGATION_CANDIDATE_MIN_CONFIDENCE:
+    process.env.INVESTIGATION_CANDIDATE_MIN_CONFIDENCE ??
+    process.env.INVESTIGATION_MIN_CONFIDENCE,
   INVESTIGATION_MIN_CONFIDENCE: process.env.INVESTIGATION_MIN_CONFIDENCE,
+  INVESTIGATION_SUGGESTION_MIN_CONFIDENCE:
+    process.env.INVESTIGATION_SUGGESTION_MIN_CONFIDENCE,
+  INVESTIGATION_MIN_ACTIONABLE_EVENTS:
+    process.env.INVESTIGATION_MIN_ACTIONABLE_EVENTS,
+  INVESTIGATION_MIN_SIGNAL_FAMILIES:
+    process.env.INVESTIGATION_MIN_SIGNAL_FAMILIES,
+  INVESTIGATION_CANDIDATE_EXPIRY_HOURS:
+    process.env.INVESTIGATION_CANDIDATE_EXPIRY_HOURS,
   THREAT_INTEL_ENABLED: process.env.THREAT_INTEL_ENABLED,
   THREAT_INTEL_PROVIDER: process.env.THREAT_INTEL_PROVIDER,
   THREAT_INTEL_CACHE_HOURS: process.env.THREAT_INTEL_CACHE_HOURS,

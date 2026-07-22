@@ -1,5 +1,6 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import type { ClientStatus } from "@prisma/client";
 import {
@@ -12,9 +13,16 @@ import { Modal } from "@/components/ui/modal";
 import { Select } from "@/components/ui/select";
 import type { ClientDetail } from "@/types/client";
 
-const STATUS_OPTIONS = [
+const CREATE_STATUS_OPTIONS = [
+  { value: "ONBOARDING", label: "Onboarding" },
+];
+
+const EDIT_STATUS_OPTIONS = [
+  { value: "PROSPECT", label: "Prospect" },
   { value: "ONBOARDING", label: "Onboarding" },
   { value: "ACTIVE", label: "Active" },
+  { value: "SUSPENDED", label: "Suspended" },
+  { value: "OFFBOARDED", label: "Offboarded" },
   { value: "INACTIVE", label: "Inactive" },
 ];
 
@@ -31,6 +39,7 @@ export function ClientFormModal({
   client,
   onSuccess,
 }: ClientFormModalProps) {
+  const router = useRouter();
   const isEditing = Boolean(client);
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
@@ -49,6 +58,15 @@ export function ClientFormModal({
       if (result.success) {
         onSuccess?.(result.data.id);
         onClose();
+        if (
+          !isEditing &&
+          "redirectTo" in result.data &&
+          typeof result.data.redirectTo === "string"
+        ) {
+          router.push(result.data.redirectTo);
+        } else {
+          router.refresh();
+        }
       } else {
         setError(result.error);
       }
@@ -62,8 +80,8 @@ export function ClientFormModal({
       title={isEditing ? "Edit Client" : "Add Client"}
       description={
         isEditing
-          ? "Update client information. Changes are audited."
-          : "Register a new client to begin monitoring their security posture."
+          ? "Update client profile information. Status changes follow lifecycle rules and are audited."
+          : "Register a new client. You will continue to the onboarding workspace after creation."
       }
     >
       <form onSubmit={handleSubmit} className="space-y-4">
@@ -82,13 +100,22 @@ export function ClientFormModal({
           disabled={isPending}
         />
 
-        <Input
-          label="Industry"
-          name="industry"
-          defaultValue={client?.industry ?? ""}
-          placeholder="Technology, Healthcare, Finance..."
-          disabled={isPending}
-        />
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Input
+            label="Industry (optional)"
+            name="industry"
+            defaultValue={client?.industry ?? ""}
+            placeholder="Technology, Healthcare, Finance..."
+            disabled={isPending}
+          />
+          <Input
+            label="Country (optional)"
+            name="country"
+            defaultValue={client?.country ?? ""}
+            placeholder="United States"
+            disabled={isPending}
+          />
+        </div>
 
         <div className="grid gap-4 sm:grid-cols-2">
           <Input
@@ -115,7 +142,7 @@ export function ClientFormModal({
             disabled={isPending}
           />
           <Input
-            label="Website"
+            label="Website (optional)"
             name="website"
             type="url"
             defaultValue={client?.website ?? ""}
@@ -124,12 +151,20 @@ export function ClientFormModal({
           />
         </div>
 
+        <Input
+          label="Timezone (optional)"
+          name="timezone"
+          defaultValue={client?.timezone ?? ""}
+          placeholder="UTC, America/New_York..."
+          disabled={isPending}
+        />
+
         <Select
           label="Status"
           name="status"
           defaultValue={(client?.status ?? "ONBOARDING") as ClientStatus}
-          options={STATUS_OPTIONS}
-          disabled={isPending}
+          options={isEditing ? EDIT_STATUS_OPTIONS : CREATE_STATUS_OPTIONS}
+          disabled={isPending || !isEditing}
         />
 
         <div className="flex justify-end gap-3 pt-2">

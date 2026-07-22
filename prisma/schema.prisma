@@ -391,9 +391,67 @@ enum ThreatIntelRiskLevel {
 }
 
 enum ClientStatus {
-  ACTIVE
-  INACTIVE
+  PROSPECT
   ONBOARDING
+  ACTIVE
+  SUSPENDED
+  OFFBOARDED
+  /// @deprecated Prefer OFFBOARDED. Kept for historical rows / compatibility.
+  INACTIVE
+}
+
+enum ClientContactType {
+  PRIMARY
+  TECHNICAL
+  SECURITY
+  BILLING
+  EXECUTIVE
+  OTHER
+}
+
+enum ClientServiceType {
+  PASSIVE_WEB_MONITORING
+  ZAP_BASELINE
+  WAZUH_ENDPOINT_MONITORING
+  SECURITY_EVENT_MONITORING
+  INCIDENT_RESPONSE
+  REPORTING
+}
+
+enum ClientServiceStatus {
+  PLANNED
+  ACTIVE
+  PAUSED
+  DISABLED
+}
+
+enum ClientOnboardingStatus {
+  NOT_STARTED
+  IN_PROGRESS
+  BLOCKED
+  READY
+  COMPLETED
+}
+
+enum ClientOnboardingStep {
+  CLIENT_PROFILE
+  CONTACTS
+  SECURITY_SCOPE
+  ASSETS
+  SERVICES
+  AUTHORIZATION
+  REVIEW
+}
+
+enum ClientUserAccessStatus {
+  INVITED
+  ACTIVE
+  REVOKED
+}
+
+enum ClientUserAccessRole {
+  CLIENT_VIEWER
+  CLIENT_ADMIN
 }
 
 model Organization {
@@ -437,6 +495,11 @@ model Organization {
   iotDevices             IoTDevice[]
   reports                Report[]
   auditLogs              AuditLog[]
+  organizationSettings   OrganizationSettings?
+  clientContacts         ClientContact[]
+  clientServices         ClientService[]
+  clientOnboardings      ClientOnboarding[]
+  clientUserAccesses     ClientUserAccess[]
 }
 
 model User {
@@ -479,10 +542,25 @@ model User {
   investigationGroupEventsAdded InvestigationGroupEvent[] @relation("InvestigationGroupEventAdder")
   threatIntelLookupsRequested ThreatIntelLookup[] @relation("ThreatIntelLookupRequester")
   correlationCandidatesReviewed CorrelationCandidate[] @relation("CorrelationCandidateReviewer")
+  clientUserAccesses            ClientUserAccess[]     @relation("ClientUserAccessUser")
 
   @@unique([organizationId, email])
   @@index([organizationId])
   @@index([externalId])
+}
+
+model OrganizationSettings {
+  id                    String   @id @default(cuid())
+  organizationId        String   @unique
+  displayName           String?
+  defaultTimezone       String?  @default("UTC")
+  securityContactEmail  String?
+  /// Non-secret report branding preferences (colors, footer text). Never store credentials.
+  defaultReportBranding Json?
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 }
 
 model Client {
@@ -491,12 +569,19 @@ model Client {
   name                String
   slug                String
   industry            String?
+  website             String?
+  country             String?
+  timezone            String?
   primaryContactName  String?
   primaryContactEmail String?
   phone               String?
-  website             String?
+  notes               String?
   status              ClientStatus @default(ONBOARDING)
   securityScore       Float?
+  onboardingStartedAt DateTime?
+  activatedAt         DateTime?
+  suspendedAt         DateTime?
+  offboardedAt        DateTime?
   createdAt           DateTime     @default(now())
   updatedAt           DateTime     @updatedAt
 
@@ -508,11 +593,98 @@ model Client {
   securityScoreSnapshots SecurityScoreSnapshot[]
   securityEvents         SecurityEvent[]
   wazuhAgentMappings     WazuhAgentMapping[]
+  contacts               ClientContact[]
+  services               ClientService[]
+  onboarding             ClientOnboarding?
+  userAccesses           ClientUserAccess[]
 
   @@unique([organizationId, slug])
   @@index([organizationId])
   @@index([status])
   @@index([industry])
+}
+
+/// Customer-company contact. Does NOT grant ClientShield login access.
+model ClientContact {
+  id             String            @id @default(cuid())
+  organizationId String
+  clientId       String
+  name           String
+  email          String
+  phone          String?
+  jobTitle       String?
+  contactType    ClientContactType @default(OTHER)
+  isPrimary      Boolean           @default(false)
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  client       Client       @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@index([clientId])
+  @@index([organizationId, clientId, isPrimary])
+}
+
+/// Security capability offered to a Client. Enabling ≠ technical readiness.
+model ClientService {
+  id             String              @id @default(cuid())
+  organizationId String
+  clientId       String
+  serviceType    ClientServiceType
+  status         ClientServiceStatus @default(PLANNED)
+  enabledAt      DateTime?
+  disabledAt     DateTime?
+  configuration  Json?
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  client       Client       @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, clientId, serviceType])
+  @@index([organizationId])
+  @@index([clientId])
+  @@index([status])
+}
+
+model ClientOnboarding {
+  id             String                 @id @default(cuid())
+  organizationId String
+  clientId       String                 @unique
+  status         ClientOnboardingStatus @default(NOT_STARTED)
+  currentStep    ClientOnboardingStep   @default(CLIENT_PROFILE)
+  startedAt      DateTime?
+  completedAt    DateTime?
+  createdAt      DateTime               @default(now())
+  updatedAt      DateTime               @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  client       Client       @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@index([status])
+}
+
+/// Future Client Portal access mapping. Do not auto-grant from ClientContact.
+model ClientUserAccess {
+  id             String                 @id @default(cuid())
+  organizationId String
+  clientId       String
+  userId         String
+  accessRole     ClientUserAccessRole   @default(CLIENT_VIEWER)
+  status         ClientUserAccessStatus @default(INVITED)
+  createdAt      DateTime               @default(now())
+  updatedAt      DateTime               @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  client       Client       @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  user         User         @relation("ClientUserAccessUser", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, clientId, userId])
+  @@index([organizationId])
+  @@index([clientId])
+  @@index([userId])
 }
 
 model Asset {
@@ -1275,6 +1447,10 @@ model CorrelationCandidate {
   confidence           CorrelationConfidence
   /// Human-readable reason strings explaining the score.
   reasons              Json
+  /// Signal families that contributed (ASSET_CONTEXT, NETWORK, …).
+  signalFamilies       Json?
+  /// Extra quality/risk notes for analysts.
+  qualityFactors       Json?
   status               CorrelationCandidateStatus @default(PENDING)
   investigationGroupId String?
   reviewedByUserId     String?
@@ -1298,6 +1474,8 @@ model CorrelationCandidate {
   @@index([confidence])
   @@index([organizationId, status])
   @@index([investigationGroupId])
+  @@index([expiresAt])
+  @@index([organizationId, status, expiresAt])
 }
 
 model InvestigationGroup {
@@ -1313,6 +1491,14 @@ model InvestigationGroup {
   createdByUserId      String?
   /// Human-readable explanation of why events were grouped.
   groupingExplanation  String?
+  /// Aggregate confidence from correlation quality model (nullable for older rows).
+  confidence           CorrelationConfidence?
+  /// Deterministic fingerprint for SYSTEM_SUGGESTED deduplication.
+  fingerprint          String?
+  /// Cached quality metrics (event/rule/actionable counts, etc.).
+  qualitySummary       Json?
+  /// Analyst-facing warning when quality falls below current policy.
+  qualityWarning       String?
   mitreTactics         Json?
   mitreTechniques      Json?
   confirmedAt          DateTime?
@@ -1334,6 +1520,8 @@ model InvestigationGroup {
   @@index([createdByType])
   @@index([organizationId, status])
   @@index([createdAt])
+  @@index([fingerprint])
+  @@index([organizationId, fingerprint])
 }
 
 model InvestigationGroupEvent {
@@ -1343,6 +1531,8 @@ model InvestigationGroupEvent {
   securityEventId String
   addedByUserId   String?
   addedAt         DateTime  @default(now())
+  /// Why this event was linked (correlation reason / analyst note).
+  addReason       String?
   removedAt       DateTime?
   removeReason    String?
 

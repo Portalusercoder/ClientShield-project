@@ -57,12 +57,20 @@ function baseSnap(
     destinationIp: null,
     username: null,
     processName: null,
+    filePath: null,
     correlationKey: `key-${overrides.id}`,
     firstSeenAt: now,
     lastSeenAt: now,
     mitreTactics: [],
     mitreTechniques: [],
     fileHashes: [],
+    classification: "ACTIONABLE",
+    ruleId: null,
+    ruleGroups: [],
+    scaCheckId: null,
+    title: null,
+    severity: "HIGH",
+    threatIntelRisk: null,
     ...overrides,
   };
 }
@@ -183,6 +191,21 @@ async function main() {
 
   console.log("\nScoring");
   const now = new Date();
+
+  const assetOnly = scoreEventPair(
+    baseSnap({ id: "a", assetId: "asset1", agentId: "001", lastSeenAt: now }),
+    baseSnap({ id: "b", assetId: "asset1", agentId: "001", lastSeenAt: now }),
+    24
+  );
+  assert(
+    assetOnly.confidence === null,
+    "Same asset+agent alone does not create a candidate"
+  );
+  assert(
+    (assetOnly.signalFamilies ?? []).includes("ASSET_CONTEXT"),
+    "Asset+agent counted as one ASSET_CONTEXT family"
+  );
+
   const weak = scoreEventPair(
     baseSnap({
       id: "a",
@@ -201,6 +224,30 @@ async function main() {
   assert(
     weak.confidence === null || (weak.score ?? 0) < 50,
     "Weak shared tactic/process does not over-correlate"
+  );
+
+  const noisyPair = scoreEventPair(
+    baseSnap({
+      id: "a",
+      classification: "NOISY",
+      ruleId: "19008",
+      assetId: "asset1",
+      title: "CIS check",
+      lastSeenAt: now,
+    }),
+    baseSnap({
+      id: "b",
+      classification: "NOISY",
+      ruleId: "19007",
+      assetId: "asset1",
+      title: "CIS other",
+      lastSeenAt: now,
+    }),
+    24
+  );
+  assert(
+    noisyPair.confidence === null,
+    "NOISY+NOISY / unrelated SCA does not create candidates"
   );
 
   const strongHash =
@@ -234,6 +281,7 @@ async function main() {
   );
   assert(strong.confidence === "HIGH", "Strong multi-signal pair is HIGH");
   assert(strong.reasons.length >= 3, "Reasons are human-readable and present");
+  assert(strong.hasVeryStrongSignal === true, "Hash is VERY_STRONG");
 
   await cleanup();
 

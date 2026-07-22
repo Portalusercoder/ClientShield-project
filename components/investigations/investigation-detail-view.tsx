@@ -242,16 +242,63 @@ export function InvestigationDetailView({
 
           <Card>
             <CardHeader>
-              <CardTitle>Grouping explanation</CardTitle>
+              <CardTitle>Why this was grouped</CardTitle>
               <CardDescription>
-                Why these events were grouped together
+                Explainable correlation quality signals
               </CardDescription>
             </CardHeader>
-            <CardContent>
+            <CardContent className="space-y-3">
+              {investigation.qualityWarning ? (
+                <p className="rounded-md border border-severity-high/30 bg-severity-medium/10 px-3 py-2 text-sm text-severity-medium">
+                  {investigation.qualityWarning}
+                </p>
+              ) : null}
+              {investigation.strongSignals.length > 0 ? (
+                <div>
+                  <p className="text-xs uppercase tracking-wide text-muted">
+                    Strong signals
+                  </p>
+                  <ul className="mt-1 list-disc space-y-1 pl-5 text-sm">
+                    {investigation.strongSignals.map((s) => (
+                      <li key={s}>{s}</li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
+              {investigation.supportingSignals.length > 0 ? (
+                <div>
+                  <p className="text-xs uppercase tracking-wide text-muted">
+                    Context / supporting
+                  </p>
+                  <ul className="mt-1 list-disc space-y-1 pl-5 text-sm">
+                    {investigation.supportingSignals.map((s) => (
+                      <li key={s}>{s}</li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
               <p className="text-sm text-foreground">
                 {investigation.groupingExplanation ??
                   "No grouping explanation recorded."}
               </p>
+              <dl className="grid gap-3 sm:grid-cols-2">
+                <Field
+                  label="Confidence"
+                  value={investigation.confidence ?? "—"}
+                />
+                <Field
+                  label="Actionable events"
+                  value={investigation.qualityMetrics?.actionableEventCount ?? "—"}
+                />
+                <Field
+                  label="Noisy events"
+                  value={investigation.qualityMetrics?.noisyEventCount ?? "—"}
+                />
+                <Field
+                  label="Distinct rules"
+                  value={investigation.qualityMetrics?.distinctRuleCount ?? "—"}
+                />
+              </dl>
             </CardContent>
           </Card>
 

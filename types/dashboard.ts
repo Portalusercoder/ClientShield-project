@@ -69,6 +69,13 @@ export interface DashboardRemediationMetric {
 
 export interface DashboardData {
   stats: DashboardStats;
+  clientManagement: {
+    activeClients: number;
+    clientsOnboarding: number;
+    clientsNotReady: number;
+    clientsWithCriticalFindings: number;
+    clientsWithOpenIncidents: number;
+  };
   caseMetrics: IncidentCaseMetrics;
   investigationMetrics: InvestigationMetrics;
   severityDistribution: SeverityDistribution[];

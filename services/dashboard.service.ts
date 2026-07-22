@@ -1,12 +1,15 @@
 import type { DashboardData } from "@/types/dashboard";
 import {
-  MOCK_CLIENTS_REQUIRING_ATTENTION,
   MOCK_RECENT_ACTIVITY,
   MOCK_REMEDIATION_METRICS,
   MOCK_SEVERITY_DISTRIBUTION,
 } from "@/lib/mock-data/dashboard";
 import { countMonitoredAssets } from "@/services/assets.service";
-import { countClients } from "@/services/clients.service";
+import {
+  countClients,
+  getClientManagementMetrics,
+  getClientsRequiringAttention,
+} from "@/services/clients.service";
 import {
   countUnresolvedBySeverity,
   getRecentFindings,
@@ -49,6 +52,8 @@ export async function getDashboardData(
     securityEventSoc,
     recentSecurityEvents,
     posture,
+    clientManagement,
+    clientsRequiringAttention,
   ] = await Promise.all([
     countClients(organizationId),
     countMonitoredAssets(organizationId),
@@ -63,6 +68,8 @@ export async function getDashboardData(
     getSecurityEventSocMetrics(organizationId),
     getRecentSecurityEvents(organizationId, 5),
     calculateOrganizationSecurityPosture(organizationId),
+    getClientManagementMetrics(organizationId),
+    getClientsRequiringAttention(organizationId),
   ]);
 
   return {
@@ -86,13 +93,14 @@ export async function getDashboardData(
       assetsAssessed: posture.assetsAssessed,
       assetsTotal: posture.assetsTotal,
     },
+    clientManagement,
     caseMetrics,
     investigationMetrics,
     severityDistribution: MOCK_SEVERITY_DISTRIBUTION,
     securityEventSeverityDistribution: securityEventSoc.severityDistribution,
     topWazuhRules: securityEventSoc.topRules,
     topAffectedAssets: securityEventSoc.topAssets,
-    clientsRequiringAttention: MOCK_CLIENTS_REQUIRING_ATTENTION,
+    clientsRequiringAttention,
     recentFindings: recentFindingsRaw.map((f) => ({
       id: f.id,
       title: f.title,

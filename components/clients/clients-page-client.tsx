@@ -1,5 +1,6 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { ClientFilters } from "@/components/clients/client-filters";
 import { ClientFormModal } from "@/components/clients/client-form-modal";
@@ -12,6 +13,8 @@ interface ClientsPageClientProps {
   data: ClientListResult;
   currentSearch?: string;
   currentStatus?: string;
+  currentOnboarding?: string;
+  currentReadiness?: string;
   currentIndustry?: string;
   canCreate: boolean;
 }
@@ -20,10 +23,20 @@ export function ClientsPageClient({
   data,
   currentSearch,
   currentStatus,
+  currentOnboarding,
+  currentReadiness,
   currentIndustry,
   canCreate,
 }: ClientsPageClientProps) {
+  const router = useRouter();
   const [addOpen, setAddOpen] = useState(false);
+
+  const hasFilters =
+    Boolean(currentSearch) ||
+    (currentStatus && currentStatus !== "ALL") ||
+    (currentOnboarding && currentOnboarding !== "ALL") ||
+    (currentReadiness && currentReadiness !== "ALL") ||
+    (currentIndustry && currentIndustry !== "ALL");
 
   return (
     <div className="space-y-6">
@@ -42,6 +55,8 @@ export function ClientsPageClient({
         industries={data.industries}
         currentSearch={currentSearch}
         currentStatus={currentStatus}
+        currentOnboarding={currentOnboarding}
+        currentReadiness={currentReadiness}
         currentIndustry={currentIndustry}
       />
 
@@ -49,13 +64,13 @@ export function ClientsPageClient({
         <EmptyState
           title="No clients found"
           description={
-            currentSearch || currentStatus !== "ALL" || currentIndustry !== "ALL"
+            hasFilters
               ? "No clients match your current filters. Try adjusting your search criteria."
-              : "No clients have been added yet. Add your first client to begin monitoring their security posture."
+              : "No clients have been added yet. Add your first client to begin onboarding and monitoring."
           }
           className="mt-4"
         >
-          {canCreate && !currentSearch && currentStatus === "ALL" && (
+          {canCreate && !hasFilters && (
             <Button className="mt-4" onClick={() => setAddOpen(true)}>
               Add Client
             </Button>
@@ -66,7 +81,13 @@ export function ClientsPageClient({
       )}
 
       {addOpen && (
-        <ClientFormModal open={addOpen} onClose={() => setAddOpen(false)} />
+        <ClientFormModal
+          open={addOpen}
+          onClose={() => setAddOpen(false)}
+          onSuccess={(id) => {
+            router.push(`/clients/${id}/onboarding`);
+          }}
+        />
       )}
     </div>
   );

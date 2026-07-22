@@ -43,7 +43,7 @@ async function main() {
 
   const archived = await archiveClient(DEV_ORG_ID, created.id);
   console.log(
-    `Archive: ${archived?.status === "INACTIVE" ? "PASS" : "FAIL"}`
+    `Archive: ${archived?.status === "OFFBOARDED" ? "PASS" : "FAIL"}`
   );
 
   const list = await listClients(DEV_ORG_ID, { search: "Nextera" });

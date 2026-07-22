@@ -1,7 +1,8 @@
-import { serverEnv } from "@/lib/env";
+import { expirePendingCandidates } from "@/services/investigations/investigation-quality.service";
 import { generateCandidatesForEvent } from "@/services/investigations/correlation.service";
 import { suggestGroupsFromPendingCandidates } from "@/services/investigations/investigation.service";
 import { extractAndLinkObservablesFromSecurityEvent } from "@/services/investigations/observable.service";
+import { serverEnv } from "@/lib/env";
 
 function logPost(
   level: "info" | "warn" | "error",
@@ -60,12 +61,21 @@ export async function runPostIngestionInvestigationHooks(
       }
     }
 
-    // Optionally suggest OPEN SYSTEM_SUGGESTED groups for HIGH clusters.
+    // Optionally suggest OPEN SYSTEM_SUGGESTED groups for quality-qualified clusters.
     // Never auto-CONFIRMED. Never creates incidents.
     if (
       serverEnv.INVESTIGATION_CORRELATION_ENABLED &&
       createdEventIds.length > 0
     ) {
+      try {
+        await expirePendingCandidates(organizationId);
+      } catch (error) {
+        logPost("warn", "expirePendingCandidates failed (isolated)", {
+          organizationId,
+          error:
+            error instanceof Error ? error.message.slice(0, 200) : "unknown",
+        });
+      }
       try {
         await suggestGroupsFromPendingCandidates(organizationId);
       } catch (error) {

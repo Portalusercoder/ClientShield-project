@@ -2,11 +2,12 @@ import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { serverEnv } from "@/lib/env";
 import {
-  meetsMinConfidence,
+  meetsCandidateMinConfidence,
   orderEventIds,
   scoreEventPair,
   type ScoringEventSnapshot,
 } from "@/services/investigations/correlation-scoring";
+import { toScoringFields } from "@/services/investigations/investigation-quality.service";
 import { getFileHashesForEvent } from "@/services/investigations/observable.service";
 import { appendInvestigationActivity } from "@/services/investigations/investigation-activity.service";
 
@@ -25,36 +26,13 @@ function logCorr(level: "warn" | "error" | "info", message: string, meta?: objec
 
 async function toSnapshot(
   organizationId: string,
-  event: {
-    id: string;
-    assetId: string | null;
-    agentId: string | null;
-    sourceIp: string | null;
-    destinationIp: string | null;
-    username: string | null;
-    processName: string | null;
-    correlationKey: string;
-    firstSeenAt: Date;
-    lastSeenAt: Date;
-    mitreTactics: unknown;
-    mitreTechniques: unknown;
-  }
+  event: Parameters<typeof toScoringFields>[0]
 ): Promise<ScoringEventSnapshot> {
   const fileHashes = await getFileHashesForEvent(organizationId, event.id);
   return {
-    id: event.id,
-    assetId: event.assetId,
-    agentId: event.agentId,
-    sourceIp: event.sourceIp,
-    destinationIp: event.destinationIp,
-    username: event.username,
-    processName: event.processName,
-    correlationKey: event.correlationKey,
-    firstSeenAt: event.firstSeenAt,
-    lastSeenAt: event.lastSeenAt,
-    mitreTactics: event.mitreTactics,
-    mitreTechniques: event.mitreTechniques,
+    ...toScoringFields(event),
     fileHashes,
+    threatIntelRisk: null,
   };
 }
 
@@ -72,6 +50,7 @@ export async function generateCandidatesForEvent(
 
   try {
     const windowHours = serverEnv.INVESTIGATION_CORRELATION_WINDOW_HOURS;
+    const expiryHours = serverEnv.INVESTIGATION_CANDIDATE_EXPIRY_HOURS;
     const since = new Date(Date.now() - windowHours * 60 * 60 * 1000);
 
     const event = await prisma.securityEvent.findFirst({
@@ -79,11 +58,17 @@ export async function generateCandidatesForEvent(
     });
     if (!event) return { created, updated, skipped };
 
+    // IGNORED never seeds candidates
+    if (event.classification === "IGNORED") {
+      return { created, updated, skipped: 1 };
+    }
+
     const peers = await prisma.securityEvent.findMany({
       where: {
         organizationId,
         id: { not: eventId },
         lastSeenAt: { gte: since },
+        classification: { not: "IGNORED" },
       },
       orderBy: { lastSeenAt: "desc" },
       take: 200,
@@ -92,7 +77,6 @@ export async function generateCandidatesForEvent(
     const left = await toSnapshot(organizationId, event);
 
     for (const peer of peers) {
-      // Skip same correlationKey when it is only the occurrence of the same SE grouping
       if (peer.correlationKey === event.correlationKey) {
         skipped += 1;
         continue;
@@ -100,7 +84,7 @@ export async function generateCandidatesForEvent(
 
       const right = await toSnapshot(organizationId, peer);
       const scored = scoreEventPair(left, right, windowHours);
-      if (!scored.confidence || !meetsMinConfidence(scored.confidence)) {
+      if (!scored.confidence || !meetsCandidateMinConfidence(scored.confidence)) {
         skipped += 1;
         continue;
       }
@@ -116,15 +100,22 @@ export async function generateCandidatesForEvent(
         },
       });
 
+      const payload = {
+        score: scored.score,
+        confidence: scored.confidence,
+        reasons: scored.reasons as Prisma.InputJsonValue,
+        signalFamilies: scored.signalFamilies as Prisma.InputJsonValue,
+        qualityFactors: [
+          ...scored.qualityFactors,
+          ...scored.riskFactors,
+        ] as Prisma.InputJsonValue,
+      };
+
       if (existing) {
         if (existing.status === "PENDING") {
           await prisma.correlationCandidate.update({
             where: { id: existing.id },
-            data: {
-              score: scored.score,
-              confidence: scored.confidence,
-              reasons: scored.reasons as Prisma.InputJsonValue,
-            },
+            data: payload,
           });
           updated += 1;
         } else {
@@ -138,11 +129,9 @@ export async function generateCandidatesForEvent(
           organizationId,
           eventAId,
           eventBId,
-          score: scored.score,
-          confidence: scored.confidence,
-          reasons: scored.reasons as Prisma.InputJsonValue,
+          ...payload,
           status: "PENDING",
-          expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+          expiresAt: new Date(Date.now() + expiryHours * 60 * 60 * 1000),
         },
       });
       created += 1;
@@ -168,7 +157,11 @@ export async function runCorrelationPass(
   const windowHours = serverEnv.INVESTIGATION_CORRELATION_WINDOW_HOURS;
   const since = new Date(Date.now() - windowHours * 60 * 60 * 1000);
   const events = await prisma.securityEvent.findMany({
-    where: { organizationId, lastSeenAt: { gte: since } },
+    where: {
+      organizationId,
+      lastSeenAt: { gte: since },
+      classification: { not: "IGNORED" },
+    },
     orderBy: { lastSeenAt: "desc" },
     take: 50,
     select: { id: true },
@@ -180,6 +173,29 @@ export async function runCorrelationPass(
     candidatesCreated += r.created;
   }
   return { eventsScanned: events.length, candidatesCreated };
+}
+
+export async function listPendingCandidates(
+  organizationId: string,
+  options?: { page?: number; pageSize?: number }
+) {
+  const page = options?.page ?? 1;
+  const pageSize = options?.pageSize ?? 50;
+  const where = { organizationId, status: "PENDING" as const };
+  const [total, rows] = await Promise.all([
+    prisma.correlationCandidate.count({ where }),
+    prisma.correlationCandidate.findMany({
+      where,
+      orderBy: [{ confidence: "desc" }, { score: "desc" }],
+      skip: (page - 1) * pageSize,
+      take: pageSize,
+      include: {
+        eventA: { select: { id: true, title: true, severity: true, ruleId: true } },
+        eventB: { select: { id: true, title: true, severity: true, ruleId: true } },
+      },
+    }),
+  ]);
+  return { total, items: rows, page, pageSize };
 }
 
 export async function acceptCandidate(input: {
@@ -202,7 +218,8 @@ export async function acceptCandidate(input: {
       status: "ACCEPTED",
       reviewedAt: new Date(),
       reviewedByUserId: input.actorId,
-      investigationGroupId: input.investigationGroupId ?? candidate.investigationGroupId,
+      investigationGroupId:
+        input.investigationGroupId ?? candidate.investigationGroupId,
     },
   });
 

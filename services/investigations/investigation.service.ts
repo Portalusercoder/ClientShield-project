@@ -12,6 +12,15 @@ import {
 } from "@/services/security-events.service";
 import { acceptCandidate } from "@/services/investigations/correlation.service";
 import { appendInvestigationActivity } from "@/services/investigations/investigation-activity.service";
+import {
+  buildInvestigationFingerprint,
+  computeQualityMetrics,
+  evaluateSuggestionEligibility,
+  loadQualityMetricsForGroup,
+  qualitySummaryToJson,
+  qualityWarningForMetrics,
+  scoreInvestigationOverlap,
+} from "@/services/investigations/investigation-quality.service";
 import type {
   CreateInvestigationInput,
   InvestigationFilters,
@@ -86,6 +95,7 @@ export async function listInvestigations(
     ...(filters.createdByType
       ? { createdByType: filters.createdByType }
       : {}),
+    ...(filters.clientId ? { clientId: filters.clientId } : {}),
   };
 
   const [total, rows] = await Promise.all([
@@ -101,7 +111,13 @@ export async function listInvestigations(
           select: {
             id: true,
             securityEvent: {
-              select: { firstSeenAt: true, lastSeenAt: true },
+              select: {
+                firstSeenAt: true,
+                lastSeenAt: true,
+                classification: true,
+                ruleId: true,
+                assetId: true,
+              },
             },
           },
         },
@@ -112,14 +128,9 @@ export async function listInvestigations(
   return {
     total,
     items: rows.map((r) => {
-      let firstSeenAt: Date | null = null;
-      let lastSeenAt: Date | null = null;
-      for (const link of r.events) {
-        const first = link.securityEvent.firstSeenAt;
-        const last = link.securityEvent.lastSeenAt;
-        if (!firstSeenAt || first < firstSeenAt) firstSeenAt = first;
-        if (!lastSeenAt || last > lastSeenAt) lastSeenAt = last;
-      }
+      const live = computeQualityMetrics(
+        r.events.map((e) => e.securityEvent)
+      );
       return {
         id: r.id,
         title: r.title,
@@ -127,9 +138,14 @@ export async function listInvestigations(
         severity: r.severity,
         createdByType: r.createdByType,
         groupingExplanation: r.groupingExplanation,
-        eventCount: r.events.length,
-        firstSeenAt,
-        lastSeenAt,
+        confidence: r.confidence,
+        qualityWarning: r.qualityWarning,
+        eventCount: live.eventCount,
+        actionableEventCount: live.actionableEventCount,
+        noisyEventCount: live.noisyEventCount,
+        distinctRuleCount: live.distinctRuleCount,
+        firstSeenAt: live.firstSeenAt,
+        lastSeenAt: live.lastSeenAt,
         createdAt: r.createdAt,
         updatedAt: r.updatedAt,
       };
@@ -417,14 +433,20 @@ export async function createInvestigation(input: {
 }
 
 /**
- * System-suggested group from a high-confidence cluster.
+ * System-suggested group from a high-quality cluster.
  * Status remains OPEN — never auto-CONFIRMED.
+ * Never auto-merges CONFIRMED or LINKED_TO_INCIDENT groups.
  */
 export async function createSystemSuggestedGroup(input: {
   organizationId: string;
   eventIds: string[];
   reasons: string[];
   titleHint?: string | null;
+  confidence?: "LOW" | "MEDIUM" | "HIGH" | null;
+  signalFamilies?: string[];
+  hasVeryStrongSignal?: boolean;
+  strongSignals?: string[];
+  supportingSignals?: string[];
 }) {
   const eventIds = [...new Set(input.eventIds)];
   if (eventIds.length < 2) {
@@ -439,8 +461,28 @@ export async function createSystemSuggestedGroup(input: {
     throw new Error("Insufficient events for suggested group");
   }
 
-  // Avoid duplicate OPEN system suggestions for overlapping clusters / same asset.
-  // Exact-set matching alone is too strict when new events arrive between passes.
+  const metrics = computeQualityMetrics(events);
+  const eligibility = evaluateSuggestionEligibility({
+    clusterConfidence: input.confidence ?? null,
+    hasVeryStrongSignal: Boolean(input.hasVeryStrongSignal),
+    metrics,
+    signalFamilyCount: input.signalFamilies?.length ?? 0,
+  });
+  if (!eligibility.eligible) {
+    throw new Error(
+      `Suggestion threshold not met: ${eligibility.blockers.join("; ") || "quality gates failed"}`
+    );
+  }
+
+  const fingerprint = buildInvestigationFingerprint({
+    organizationId: input.organizationId,
+    assetId: events.find((e) => e.assetId)?.assetId ?? null,
+    ruleIds: events.map((e) => e.ruleId).filter(Boolean) as string[],
+    strongObservableKeys: [],
+    firstSeenAt: metrics.firstSeenAt,
+  });
+
+  // Only OPEN / INVESTIGATING SYSTEM_SUGGESTED may be updated — never CONFIRMED / LINKED
   const existingOpen = await prisma.investigationGroup.findMany({
     where: {
       organizationId: input.organizationId,
@@ -450,55 +492,97 @@ export async function createSystemSuggestedGroup(input: {
     include: {
       events: {
         where: { removedAt: null },
-        select: { securityEventId: true },
+        select: {
+          securityEventId: true,
+          securityEvent: {
+            select: { firstSeenAt: true, lastSeenAt: true },
+          },
+        },
       },
     },
     take: 50,
   });
+
   const targetSet = new Set(eventIds);
-  const primaryAssetId =
-    events.find((e) => e.assetId)?.assetId ?? null;
+  const primaryAssetId = events.find((e) => e.assetId)?.assetId ?? null;
 
   for (const g of existingOpen) {
-    const ids = g.events.map((e) => e.securityEventId);
-    const overlap = ids.filter((id) => targetSet.has(id)).length;
-    const sameExact =
-      ids.length === targetSet.size && ids.every((id) => targetSet.has(id));
-    const sameAsset =
-      primaryAssetId != null &&
-      g.assetId != null &&
-      g.assetId === primaryAssetId;
-    const substantialOverlap =
-      overlap >= 2 &&
-      (overlap / Math.max(ids.length, targetSet.size) >= 0.5 ||
-        overlap / Math.min(ids.length, targetSet.size) >= 0.7);
+    // Never touch confirmed / incident-linked (already filtered by status)
+    if (g.fingerprint && g.fingerprint === fingerprint) {
+      // expand below
+    } else {
+      const ids = g.events.map((e) => e.securityEventId);
+      const overlap = scoreInvestigationOverlap({
+        eventIdsA: ids,
+        eventIdsB: eventIds,
+        assetIdA: g.assetId,
+        assetIdB: primaryAssetId,
+        firstA: g.events[0]?.securityEvent.firstSeenAt ?? null,
+        lastA:
+          g.events.map((e) => e.securityEvent.lastSeenAt).sort((a, b) => +b - +a)[0] ??
+          null,
+        firstB: metrics.firstSeenAt,
+        lastB: metrics.lastSeenAt,
+      });
+      const sameExact =
+        ids.length === targetSet.size && ids.every((id) => targetSet.has(id));
+      if (!sameExact && overlap.sharedEventRatio < 0.5 && g.fingerprint !== fingerprint) {
+        continue;
+      }
+    }
 
-    if (sameExact || sameAsset || substantialOverlap) {
-      // Expand existing suggestion with any newly correlated events
-      for (const eid of eventIds) {
-        if (ids.includes(eid)) continue;
-        await prisma.investigationGroupEvent.upsert({
-          where: {
-            groupId_securityEventId: {
-              groupId: g.id,
-              securityEventId: eid,
-            },
-          },
-          create: {
-            organizationId: input.organizationId,
+    const ids = g.events.map((e) => e.securityEventId);
+    for (const eid of eventIds) {
+      if (ids.includes(eid)) continue;
+      await prisma.investigationGroupEvent.upsert({
+        where: {
+          groupId_securityEventId: {
             groupId: g.id,
             securityEventId: eid,
           },
-          update: {
-            removedAt: null,
-            removeReason: null,
-            addedAt: new Date(),
-          },
-        });
-      }
-      await refreshGroupMitre(input.organizationId, g.id);
-      return g;
+        },
+        create: {
+          organizationId: input.organizationId,
+          groupId: g.id,
+          securityEventId: eid,
+          addReason: "Expanded from overlapping SYSTEM suggestion",
+        },
+        update: {
+          removedAt: null,
+          removeReason: null,
+          addedAt: new Date(),
+          addReason: "Expanded from overlapping SYSTEM suggestion",
+        },
+      });
     }
+    await refreshGroupMitre(input.organizationId, g.id);
+    const refreshedMetrics = await loadQualityMetricsForGroup(
+      input.organizationId,
+      g.id
+    );
+    const refreshedEligibility = evaluateSuggestionEligibility({
+      clusterConfidence: input.confidence ?? g.confidence,
+      hasVeryStrongSignal: Boolean(input.hasVeryStrongSignal),
+      metrics: refreshedMetrics,
+      signalFamilyCount: input.signalFamilies?.length ?? 0,
+    });
+    await prisma.investigationGroup.update({
+      where: { id: g.id },
+      data: {
+        fingerprint,
+        confidence: input.confidence ?? g.confidence,
+        qualitySummary: qualitySummaryToJson(refreshedMetrics),
+        qualityWarning: qualityWarningForMetrics(
+          refreshedMetrics,
+          refreshedEligibility
+        ),
+        groupingExplanation: buildGroupingExplanation([
+          ...(input.reasons ?? []),
+          ...(input.strongSignals ?? []),
+        ]),
+      },
+    });
+    return g;
   }
 
   const mitre = aggregateMitre(events);
@@ -514,6 +598,16 @@ export async function createSystemSuggestedGroup(input: {
     events.find((e) => e.agentName)?.agentName ||
     "multiple hosts";
 
+  const explanationParts = [
+    ...(input.strongSignals?.length
+      ? [`Strong signals: ${input.strongSignals.join("; ")}`]
+      : []),
+    ...(input.supportingSignals?.length
+      ? [`Supporting: ${input.supportingSignals.join("; ")}`]
+      : []),
+    ...input.reasons,
+  ];
+
   const group = await prisma.investigationGroup.create({
     data: {
       organizationId: input.organizationId,
@@ -523,13 +617,18 @@ export async function createSystemSuggestedGroup(input: {
       status: "OPEN",
       severity,
       createdByType: "SYSTEM_SUGGESTED",
-      groupingExplanation: buildGroupingExplanation(input.reasons),
+      confidence: input.confidence ?? null,
+      fingerprint,
+      qualitySummary: qualitySummaryToJson(metrics),
+      qualityWarning: null,
+      groupingExplanation: buildGroupingExplanation(explanationParts),
       mitreTactics: mitre.tactics,
       mitreTechniques: mitre.techniques,
       events: {
         create: events.map((e) => ({
           organizationId: input.organizationId,
           securityEventId: e.id,
+          addReason: "SYSTEM_SUGGESTED correlation",
         })),
       },
     },
@@ -540,7 +639,11 @@ export async function createSystemSuggestedGroup(input: {
     groupId: group.id,
     activityType: "CREATED",
     message: `System suggested investigation group (${events.length} events)`,
-    metadata: { securityEventIds: eventIds, reasons: input.reasons },
+    metadata: {
+      securityEventIds: eventIds,
+      reasons: input.reasons,
+      eligibility: eligibility.reasons,
+    },
   });
 
   return group;
@@ -920,23 +1023,23 @@ export async function createIncidentFromInvestigation(input: {
 }
 
 /**
- * Suggest OPEN SYSTEM_SUGGESTED groups from HIGH-confidence PENDING candidates.
+ * Suggest OPEN SYSTEM_SUGGESTED groups from PENDING candidates that meet
+ * the investigation suggestion quality threshold.
  * Does NOT auto-confirm. Does NOT create incidents.
  */
 export async function suggestGroupsFromPendingCandidates(
   organizationId: string
-): Promise<{ suggested: number }> {
+): Promise<{ suggested: number; skipped: number }> {
   const pending = await prisma.correlationCandidate.findMany({
     where: {
       organizationId,
       status: "PENDING",
-      confidence: "HIGH",
+      confidence: { in: ["HIGH", "MEDIUM"] },
     },
     orderBy: { score: "desc" },
     take: 100,
   });
 
-  // Union-find style clustering of event ids
   const parent = new Map<string, string>();
   const find = (x: string): string => {
     const p = parent.get(x) ?? x;
@@ -954,12 +1057,15 @@ export async function suggestGroupsFromPendingCandidates(
   };
 
   const reasonsByRoot = new Map<string, string[]>();
+  const familiesByRoot = new Map<string, Set<string>>();
+  const strongByRoot = new Map<string, string[]>();
+  const supportingByRoot = new Map<string, string[]>();
+  const maxConfByRoot = new Map<string, "LOW" | "MEDIUM" | "HIGH">();
+  const hasVeryStrongByRoot = new Map<string, boolean>();
 
   for (const c of pending) {
     union(c.eventAId, c.eventBId);
   }
-
-  // Ensure all nodes exist in parent
   for (const c of pending) {
     find(c.eventAId);
     find(c.eventBId);
@@ -976,40 +1082,106 @@ export async function suggestGroupsFromPendingCandidates(
     const reasons = Array.isArray(c.reasons)
       ? (c.reasons as unknown[]).filter((r): r is string => typeof r === "string")
       : [];
-    const existing = reasonsByRoot.get(root) ?? [];
-    reasonsByRoot.set(root, [...existing, ...reasons]);
+    reasonsByRoot.set(root, [...(reasonsByRoot.get(root) ?? []), ...reasons]);
+
+    const families = Array.isArray(c.signalFamilies)
+      ? (c.signalFamilies as unknown[]).filter(
+          (r): r is string => typeof r === "string"
+        )
+      : [];
+    if (!familiesByRoot.has(root)) familiesByRoot.set(root, new Set());
+    for (const f of families) familiesByRoot.get(root)!.add(f);
+
+    const qf = Array.isArray(c.qualityFactors)
+      ? (c.qualityFactors as unknown[]).filter(
+          (r): r is string => typeof r === "string"
+        )
+      : [];
+    if (qf.some((x) => /VERY_STRONG|file hash|Shared file hash/i.test(x))) {
+      hasVeryStrongByRoot.set(root, true);
+    }
+    if (reasons.some((r) => /Shared file hash/i.test(r))) {
+      hasVeryStrongByRoot.set(root, true);
+      strongByRoot.set(root, [
+        ...(strongByRoot.get(root) ?? []),
+        ...reasons.filter((r) => /hash|public source IP/i.test(r)),
+      ]);
+    }
+    supportingByRoot.set(root, [
+      ...(supportingByRoot.get(root) ?? []),
+      ...reasons.filter((r) => /temporal|asset|agent|tactic|private/i.test(r)),
+    ]);
+
+    const prev = maxConfByRoot.get(root);
+    if (
+      !prev ||
+      { LOW: 1, MEDIUM: 2, HIGH: 3 }[c.confidence] >
+        { LOW: 1, MEDIUM: 2, HIGH: 3 }[prev]
+    ) {
+      maxConfByRoot.set(root, c.confidence);
+    }
   }
 
   let suggested = 0;
+  let skipped = 0;
   for (const [root, eventSet] of clusters) {
-    if (eventSet.size < 2) continue;
+    if (eventSet.size < 2) {
+      skipped += 1;
+      continue;
+    }
     const eventIds = [...eventSet];
+    const events = await prisma.securityEvent.findMany({
+      where: { organizationId, id: { in: eventIds } },
+    });
+    const metrics = computeQualityMetrics(events);
+    const families = [...(familiesByRoot.get(root) ?? [])];
+    const eligibility = evaluateSuggestionEligibility({
+      clusterConfidence: maxConfByRoot.get(root) ?? null,
+      hasVeryStrongSignal: Boolean(hasVeryStrongByRoot.get(root)),
+      metrics: {
+        ...metrics,
+        signalFamilyCount: families.filter(
+          (f) => f !== "TEMPORAL" && f !== "ASSET_CONTEXT"
+        ).length,
+      },
+      signalFamilyCount: families.filter(
+        (f) => f !== "TEMPORAL" && f !== "ASSET_CONTEXT"
+      ).length,
+    });
+
+    if (!eligibility.eligible) {
+      skipped += 1;
+      continue;
+    }
+
     const reasons = reasonsByRoot.get(root) ?? [];
     try {
       const group = await createSystemSuggestedGroup({
         organizationId,
         eventIds,
         reasons,
+        confidence: maxConfByRoot.get(root) ?? null,
+        signalFamilies: families,
+        hasVeryStrongSignal: Boolean(hasVeryStrongByRoot.get(root)),
+        strongSignals: [...new Set(strongByRoot.get(root) ?? [])],
+        supportingSignals: [...new Set(supportingByRoot.get(root) ?? [])],
       });
-      // Attach candidates to the group (still PENDING until analyst accepts)
       await prisma.correlationCandidate.updateMany({
         where: {
           organizationId,
           status: "PENDING",
-          confidence: "HIGH",
-          OR: [
-            { eventAId: { in: eventIds }, eventBId: { in: eventIds } },
-          ],
+          OR: [{ eventAId: { in: eventIds }, eventBId: { in: eventIds } }],
         },
         data: { investigationGroupId: group.id },
       });
       suggested += 1;
     } catch (error) {
+      skipped += 1;
       // eslint-disable-next-line no-console
       console.warn(
         JSON.stringify({
           service: "investigation.service",
-          message: "suggestGroupsFromPendingCandidates cluster failed",
+          message: "suggestGroupsFromPendingCandidates cluster skipped",
           error:
             error instanceof Error ? error.message.slice(0, 200) : "unknown",
         })
@@ -1017,7 +1189,7 @@ export async function suggestGroupsFromPendingCandidates(
     }
   }
 
-  return { suggested };
+  return { suggested, skipped };
 }
 
 /**
