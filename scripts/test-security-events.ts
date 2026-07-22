@@ -330,6 +330,61 @@ async function main() {
     }
     assertTrue(crossLinkBlocked, "cross-org event link blocked");
 
+    // Same-org, different-client link must be rejected
+    const clientB = await prisma.client.create({
+      data: {
+        organizationId: org.id,
+        name: `Client B ${SUFFIX}`,
+        slug: `client-b-${SUFFIX}`,
+        status: "ACTIVE",
+      },
+    });
+    const assetB = await prisma.asset.create({
+      data: {
+        organizationId: org.id,
+        clientId: clientB.id,
+        name: `Asset B ${SUFFIX}`,
+        type: "SERVER",
+        environment: "PRODUCTION",
+        criticality: "MEDIUM",
+        monitoringStatus: "ACTIVE",
+        authorizationStatus: "AUTHORIZED",
+      },
+    });
+    const otherClientEvent = await prisma.securityEvent.create({
+      data: {
+        organizationId: org.id,
+        clientId: clientB.id,
+        assetId: assetB.id,
+        source: "WAZUH",
+        title: "Other client event",
+        severity: "HIGH",
+        status: "NEW",
+        ruleId: "5503",
+        ruleLevel: 5,
+        agentId: "002",
+        correlationKey: `other-client-key-${SUFFIX}`,
+        firstSeenAt: new Date(),
+        lastSeenAt: new Date(),
+      },
+    });
+    let crossClientLinkBlocked = false;
+    try {
+      await linkSecurityEventToIncident({
+        organizationId: org.id,
+        actorId: user.id,
+        data: {
+          securityEventId: otherClientEvent.id,
+          incidentId: esc.incidentId,
+        },
+      });
+    } catch (err) {
+      crossClientLinkBlocked =
+        err instanceof Error &&
+        err.message.includes("Cross-client linking is not allowed");
+    }
+    assertTrue(crossClientLinkBlocked, "cross-client event→incident link blocked");
+
     await unlinkSecurityEventFromIncident({
       organizationId: org.id,
       actorId: user.id,

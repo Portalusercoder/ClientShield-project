@@ -4,6 +4,9 @@ import type {
   SecurityEventSeverity,
   SecurityEventStatus,
 } from "@prisma/client";
+import {
+  assertMatchesTargetClient,
+} from "@/lib/client-isolation";
 import { prisma } from "@/lib/db";
 import { serverEnv } from "@/lib/env";
 import { sanitizeIncidentText } from "@/lib/incidents/sanitize";
@@ -556,6 +559,12 @@ export async function linkSecurityEventToIncident(input: {
     }),
   ]);
   if (!incident) throw new Error("Incident not found");
+
+  assertMatchesTargetClient({
+    sourceClientId: event.clientId,
+    targetClientId: incident.clientId,
+    context: "security event → incident",
+  });
 
   const existing = await prisma.incidentSecurityEvent.findUnique({
     where: {

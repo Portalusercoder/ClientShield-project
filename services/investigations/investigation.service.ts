@@ -3,6 +3,11 @@ import type {
   InvestigationStatus,
   Prisma,
 } from "@prisma/client";
+import {
+  assertCompatibleClientIds,
+  assertMatchesTargetClient,
+  assertUniformClientIds,
+} from "@/lib/client-isolation";
 import { prisma } from "@/lib/db";
 import { serverEnv } from "@/lib/env";
 import { createAuditLog } from "@/services/audit.service";
@@ -374,6 +379,11 @@ export async function createInvestigation(input: {
     throw new Error("One or more security events not found in organization");
   }
 
+  const clientId = assertUniformClientIds(
+    events.map((e) => e.clientId),
+    "investigation create"
+  );
+
   const mitre = aggregateMitre(events);
   let severity: IncidentSeverity = input.data.severity ?? "MEDIUM";
   for (const e of events) {
@@ -381,8 +391,6 @@ export async function createInvestigation(input: {
     if (severityRank(mapped) > severityRank(severity)) severity = mapped;
   }
 
-  const clientId =
-    events.find((e) => e.clientId)?.clientId ?? null;
   const assetId = events.find((e) => e.assetId)?.assetId ?? null;
 
   const group = await prisma.investigationGroup.create({
@@ -460,6 +468,11 @@ export async function createSystemSuggestedGroup(input: {
   if (events.length < 2) {
     throw new Error("Insufficient events for suggested group");
   }
+
+  assertUniformClientIds(
+    events.map((e) => e.clientId),
+    "system suggested investigation"
+  );
 
   const metrics = computeQualityMetrics(events);
   const eligibility = evaluateSuggestionEligibility({
@@ -668,6 +681,17 @@ export async function addEvent(input: {
   });
   if (!event) throw new Error("Security event not found");
 
+  assertCompatibleClientIds({
+    leftClientId: group.clientId,
+    rightClientId: event.clientId,
+    context: "investigation add event",
+  });
+  if (group.clientId && !event.clientId) {
+    throw new Error(
+      "Record must be attributed to a client before linking (investigation add event)"
+    );
+  }
+
   const existing = await prisma.investigationGroupEvent.findUnique({
     where: {
       groupId_securityEventId: {
@@ -867,6 +891,20 @@ export async function linkToIncident(input: {
     where: { id: input.incidentId, organizationId: input.organizationId },
   });
   if (!incident) throw new Error("Incident not found");
+
+  if (group.clientId) {
+    assertMatchesTargetClient({
+      sourceClientId: group.clientId,
+      targetClientId: incident.clientId,
+      context: "investigation → incident",
+    });
+  } else {
+    assertCompatibleClientIds({
+      leftClientId: group.clientId,
+      rightClientId: incident.clientId,
+      context: "investigation → incident",
+    });
+  }
 
   await prisma.investigationGroupIncident.upsert({
     where: {

@@ -447,6 +447,79 @@ async function main() {
   });
   assert(stillTwo === 2 || dupBlocked, "Duplicate event link not created");
 
+  // Same-org, different-client event must not join the investigation
+  const clientB = await prisma.client.create({
+    data: {
+      organizationId: TEST_ORG,
+      name: "Invest Client B",
+      slug: "invest-client-b",
+      status: "ACTIVE",
+    },
+  });
+  const assetB = await prisma.asset.create({
+    data: {
+      organizationId: TEST_ORG,
+      clientId: clientB.id,
+      name: "Invest Asset B",
+      type: "SERVER",
+      environment: "PRODUCTION",
+      criticality: "MEDIUM",
+      monitoringStatus: "ACTIVE",
+      authorizationStatus: "AUTHORIZED",
+    },
+  });
+  const seOtherClient = await prisma.securityEvent.create({
+    data: {
+      organizationId: TEST_ORG,
+      clientId: clientB.id,
+      assetId: assetB.id,
+      source: "WAZUH",
+      severity: "HIGH",
+      status: "NEW",
+      classification: "ACTIONABLE",
+      title: "Other Client Event",
+      firstSeenAt: now,
+      lastSeenAt: now,
+      correlationKey: `invest-other-client-${Date.now()}`,
+      agentId: "002",
+    },
+  });
+  let crossClientAddBlocked = false;
+  try {
+    await addEvent({
+      organizationId: TEST_ORG,
+      actorId: TEST_USER,
+      groupId: group.id,
+      securityEventId: seOtherClient.id,
+    });
+  } catch (err) {
+    crossClientAddBlocked =
+      err instanceof Error &&
+      err.message.includes("Cross-client linking is not allowed");
+  }
+  assert(crossClientAddBlocked, "Cross-client investigation addEvent blocked");
+  const stillSameClientOnly = await prisma.investigationGroupEvent.count({
+    where: { groupId: group.id, removedAt: null },
+  });
+  assert(stillSameClientOnly === 2, "Cross-client event not linked to investigation");
+
+  let crossClientCreateBlocked = false;
+  try {
+    await createInvestigation({
+      organizationId: TEST_ORG,
+      actorId: TEST_USER,
+      data: {
+        title: "Mixed clients should fail",
+        securityEventIds: [se1.id, seOtherClient.id],
+      },
+    });
+  } catch (err) {
+    crossClientCreateBlocked =
+      err instanceof Error &&
+      err.message.includes("Cross-client linking is not allowed");
+  }
+  assert(crossClientCreateBlocked, "Cross-client investigation create blocked");
+
   await removeEvent({
     organizationId: TEST_ORG,
     actorId: TEST_USER,

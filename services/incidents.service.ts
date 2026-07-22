@@ -6,6 +6,7 @@ import type {
   Prisma,
   UserRole,
 } from "@prisma/client";
+import { assertMatchesTargetClient } from "@/lib/client-isolation";
 import { prisma } from "@/lib/db";
 import { sanitizeIncidentText } from "@/lib/incidents/sanitize";
 import type {
@@ -1265,9 +1266,15 @@ export async function linkFindingToIncident(input: {
   );
   const finding = await prisma.finding.findFirst({
     where: { id: input.findingId, organizationId: input.organizationId },
-    select: { id: true, title: true },
+    select: { id: true, title: true, clientId: true },
   });
   if (!finding) throw new Error("Finding not found");
+
+  assertMatchesTargetClient({
+    sourceClientId: finding.clientId,
+    targetClientId: incident.clientId,
+    context: "finding → incident",
+  });
 
   const existing = await prisma.incidentFinding.findUnique({
     where: {

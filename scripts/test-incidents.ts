@@ -550,6 +550,57 @@ async function main() {
     }
     assert(crossFindingBlocked, "Cross-org finding link blocked");
 
+    // Same-org, different-client finding → incident must be rejected
+    const peerClient = await prisma.client.create({
+      data: {
+        organizationId: TEST_ORG_ID,
+        name: "Peer Client Same Org",
+        slug: "peer-client-same-org",
+        status: "ACTIVE",
+      },
+    });
+    const peerAsset = await prisma.asset.create({
+      data: {
+        organizationId: TEST_ORG_ID,
+        clientId: peerClient.id,
+        name: "Peer Asset",
+        type: "WEBSITE",
+        url: "https://peer.example",
+        environment: "PRODUCTION",
+        criticality: "MEDIUM",
+        monitoringStatus: "ACTIVE",
+        authorizationStatus: "AUTHORIZED",
+      },
+    });
+    const peerFinding = await prisma.finding.create({
+      data: {
+        organizationId: TEST_ORG_ID,
+        clientId: peerClient.id,
+        assetId: peerAsset.id,
+        title: "Peer Client Finding",
+        severity: "HIGH",
+        status: "OPEN",
+        source: "MANUAL",
+      },
+    });
+    let crossClientFindingBlocked = false;
+    try {
+      await linkFindingToIncident({
+        organizationId: TEST_ORG_ID,
+        actorId: TEST_USER_ID,
+        incidentId: created.id,
+        findingId: peerFinding.id,
+      });
+    } catch (err) {
+      crossClientFindingBlocked =
+        err instanceof Error &&
+        err.message.includes("Cross-client linking is not allowed");
+    }
+    assert(
+      crossClientFindingBlocked,
+      "Cross-client finding→incident link blocked"
+    );
+
     await unlinkFindingFromIncident({
       organizationId: TEST_ORG_ID,
       actorId: TEST_USER_ID,
