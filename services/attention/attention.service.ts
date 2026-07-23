@@ -6,6 +6,7 @@
  * If any source hits PER_SOURCE_BOUND, `truncated` is true.
  */
 import type {
+  AttentionSourceType,
   FindingStatus,
   IncidentSeverity,
   IncidentStatus,
@@ -14,14 +15,15 @@ import type {
   SecurityEventStatus,
 } from "@prisma/client";
 import { prisma } from "@/lib/db";
+import { buildEligibilityGeneration } from "@/services/attention/eligibility-generation";
 import { OPEN_INCIDENT_STATUSES } from "@/services/incidents/status-transitions";
 import { UNRESOLVED_FINDING_STATUSES } from "@/types/findings";
 import type {
   AttentionFilters,
   AttentionItem,
+  AttentionListOptions,
   AttentionListResult,
   AttentionSeverity,
-  AttentionSourceType,
   AttentionSummary,
 } from "@/types/attention";
 
@@ -61,6 +63,45 @@ function normalizeReasons(reasons: string[]): string[] {
   return [...new Set(reasons.map((r) => r.trim()).filter(Boolean))];
 }
 
+function overlayDefaults(input: {
+  sourceType: AttentionSourceType;
+  sourceId: string;
+  anchorAt: Date;
+  assigneeId: string | null;
+  assigneeName: string | null;
+}): Pick<
+  AttentionItem,
+  | "eligibilityGeneration"
+  | "acknowledged"
+  | "acknowledgedAt"
+  | "acknowledgedByUserId"
+  | "acknowledgedByName"
+  | "ownerUserId"
+  | "ownerName"
+  | "isClaimed"
+  | "isMine"
+  | "isSnoozedForCurrentUser"
+  | "snoozedUntil"
+> {
+  return {
+    eligibilityGeneration: buildEligibilityGeneration({
+      sourceType: input.sourceType,
+      sourceId: input.sourceId,
+      anchorAt: input.anchorAt,
+    }),
+    acknowledged: false,
+    acknowledgedAt: null,
+    acknowledgedByUserId: null,
+    acknowledgedByName: null,
+    ownerUserId: input.assigneeId,
+    ownerName: input.assigneeName,
+    isClaimed: Boolean(input.assigneeId),
+    isMine: false,
+    isSnoozedForCurrentUser: false,
+    snoozedUntil: null,
+  };
+}
+
 function compareAttentionItems(a: AttentionItem, b: AttentionItem): number {
   if (a.overdue !== b.overdue) return a.overdue ? -1 : 1;
   if (a.severityRank !== b.severityRank) return b.severityRank - a.severityRank;
@@ -84,46 +125,6 @@ function clientWhereForAttribution(
     return { clientId: { not: null } };
   }
   return {};
-}
-
-function passesPostFilters(
-  item: AttentionItem,
-  filters: AttentionFilters
-): boolean {
-  if (filters.clientId) {
-    if (item.clientId !== filters.clientId) return false;
-  }
-  if (filters.attribution === "UNATTRIBUTED" && !item.isUnattributed) {
-    return false;
-  }
-  if (filters.attribution === "ATTRIBUTED" && item.isUnattributed) {
-    return false;
-  }
-  if (
-    filters.sourceType &&
-    filters.sourceType !== "ALL" &&
-    item.sourceType !== filters.sourceType
-  ) {
-    return false;
-  }
-  if (
-    filters.severity &&
-    filters.severity !== "ALL" &&
-    item.severity !== filters.severity
-  ) {
-    return false;
-  }
-  if (
-    filters.status &&
-    filters.status !== "ALL" &&
-    item.sourceStatus !== filters.status
-  ) {
-    return false;
-  }
-  if (filters.overdue === "OVERDUE" && !item.overdue) {
-    return false;
-  }
-  return true;
 }
 
 function isFindingOverdue(dueDate: Date | null, status: FindingStatus): boolean {
@@ -212,6 +213,13 @@ async function fetchSecurityEventItems(
       assigneeId: null,
       assigneeName: null,
       href: `/security-events/${row.id}`,
+      ...overlayDefaults({
+        sourceType: "SECURITY_EVENT",
+        sourceId: row.id,
+        anchorAt: row.firstSeenAt,
+        assigneeId: null,
+        assigneeName: null,
+      }),
     };
   });
 
@@ -323,6 +331,13 @@ async function fetchFindingItems(
       assigneeId: row.assignedToUserId,
       assigneeName: row.assignedTo?.name ?? null,
       href: `/vulnerabilities/${row.id}`,
+      ...overlayDefaults({
+        sourceType: "FINDING",
+        sourceId: row.id,
+        anchorAt: row.firstDetectedAt,
+        assigneeId: row.assignedToUserId,
+        assigneeName: row.assignedTo?.name ?? null,
+      }),
     });
   }
 
@@ -441,6 +456,13 @@ async function fetchInvestigationItems(
       assigneeId: null,
       assigneeName: null,
       href: `/investigations/${row.id}`,
+      ...overlayDefaults({
+        sourceType: "INVESTIGATION",
+        sourceId: row.id,
+        anchorAt: row.createdAt,
+        assigneeId: null,
+        assigneeName: null,
+      }),
     };
   });
 
@@ -536,10 +558,100 @@ async function fetchIncidentItems(
       assigneeId: row.assignedToUserId,
       assigneeName: row.assignedTo?.name ?? null,
       href: `/incidents/${row.id}`,
+      ...overlayDefaults({
+        sourceType: "INCIDENT",
+        sourceId: row.id,
+        anchorAt: row.detectedAt,
+        assigneeId: row.assignedToUserId,
+        assigneeName: row.assignedTo?.name ?? null,
+      }),
     };
   });
 
   return { items, hitBound: rows.length >= take };
+}
+
+/**
+ * Join overlay ack/claim/snooze onto derived items. Overlay never resurrects
+ * ineligible sources — only enriches current eligibility set.
+ */
+async function enrichWithOverlayState(
+  organizationId: string,
+  items: AttentionItem[],
+  viewerUserId?: string | null
+): Promise<AttentionItem[]> {
+  if (items.length === 0) return items;
+
+  const now = new Date();
+  const sourceIds = [...new Set(items.map((i) => i.sourceId))];
+  const generations = [...new Set(items.map((i) => i.eligibilityGeneration))];
+
+  const [states, snoozes] = await Promise.all([
+    prisma.socAttentionState.findMany({
+      where: {
+        organizationId,
+        sourceId: { in: sourceIds },
+        eligibilityGeneration: { in: generations },
+      },
+      include: {
+        acknowledgedBy: { select: { id: true, name: true } },
+        claimedBy: { select: { id: true, name: true } },
+      },
+    }),
+    viewerUserId
+      ? prisma.socAttentionUserSnooze.findMany({
+          where: {
+            organizationId,
+            userId: viewerUserId,
+            sourceId: { in: sourceIds },
+            eligibilityGeneration: { in: generations },
+            snoozedUntil: { gt: now },
+          },
+        })
+      : Promise.resolve([]),
+  ]);
+
+  const stateKey = (t: string, id: string, g: string) => `${t}:${id}:${g}`;
+  const stateByKey = new Map(
+    states.map((s) => [stateKey(s.sourceType, s.sourceId, s.eligibilityGeneration), s])
+  );
+  const snoozeByKey = new Map(
+    snoozes.map((s) => [stateKey(s.sourceType, s.sourceId, s.eligibilityGeneration), s])
+  );
+
+  return items.map((item) => {
+    const k = stateKey(item.sourceType, item.sourceId, item.eligibilityGeneration);
+    const state = stateByKey.get(k);
+    const snooze = snoozeByKey.get(k);
+
+    // Finding/Incident: native assignee is authoritative for ownership
+    const usesNativeOwner =
+      item.sourceType === "FINDING" || item.sourceType === "INCIDENT";
+
+    let ownerUserId = item.ownerUserId;
+    let ownerName = item.ownerName;
+    if (!usesNativeOwner && state?.claimedByUserId) {
+      ownerUserId = state.claimedByUserId;
+      ownerName = state.claimedBy?.name ?? null;
+    }
+
+    const acknowledged = Boolean(state?.acknowledgedAt);
+    return {
+      ...item,
+      acknowledged,
+      acknowledgedAt: state?.acknowledgedAt ?? null,
+      acknowledgedByUserId: state?.acknowledgedByUserId ?? null,
+      acknowledgedByName: state?.acknowledgedBy?.name ?? null,
+      ownerUserId,
+      ownerName,
+      isClaimed: Boolean(ownerUserId),
+      isMine: Boolean(viewerUserId && ownerUserId === viewerUserId),
+      isSnoozedForCurrentUser: Boolean(snooze),
+      snoozedUntil: snooze?.snoozedUntil ?? null,
+      assigneeId: ownerUserId,
+      assigneeName: ownerName,
+    };
+  });
 }
 
 /**
@@ -548,7 +660,8 @@ async function fetchIncidentItems(
  */
 export async function listAttentionItems(
   organizationId: string,
-  filters: AttentionFilters = {}
+  filters: AttentionFilters = {},
+  options: AttentionListOptions = {}
 ): Promise<AttentionListResult> {
   const page = Math.max(1, filters.page ?? 1);
   const pageSize = Math.min(100, Math.max(1, filters.pageSize ?? DEFAULT_PAGE_SIZE));
@@ -568,7 +681,33 @@ export async function listAttentionItems(
     ...investigations.items,
     ...incidents.items,
   ]) {
-    if (!passesPostFilters(item, filters)) continue;
+    // Base filters that don't depend on overlay
+    if (filters.clientId && item.clientId !== filters.clientId) continue;
+    if (filters.attribution === "UNATTRIBUTED" && !item.isUnattributed) continue;
+    if (filters.attribution === "ATTRIBUTED" && item.isUnattributed) continue;
+    if (
+      filters.sourceType &&
+      filters.sourceType !== "ALL" &&
+      item.sourceType !== filters.sourceType
+    ) {
+      continue;
+    }
+    if (
+      filters.severity &&
+      filters.severity !== "ALL" &&
+      item.severity !== filters.severity
+    ) {
+      continue;
+    }
+    if (
+      filters.status &&
+      filters.status !== "ALL" &&
+      item.sourceStatus !== filters.status
+    ) {
+      continue;
+    }
+    if (filters.overdue === "OVERDUE" && !item.overdue) continue;
+
     const existing = byKey.get(item.key);
     if (existing) {
       existing.reasons = normalizeReasons([
@@ -581,7 +720,28 @@ export async function listAttentionItems(
     }
   }
 
-  const merged = [...byKey.values()].sort(compareAttentionItems);
+  let merged = await enrichWithOverlayState(
+    organizationId,
+    [...byKey.values()],
+    options.viewerUserId
+  );
+
+  merged = merged.filter((item) => {
+    if (filters.acknowledgement === "ACKNOWLEDGED" && !item.acknowledged) {
+      return false;
+    }
+    if (filters.acknowledgement === "UNACKNOWLEDGED" && item.acknowledged) {
+      return false;
+    }
+    if (filters.ownership === "UNCLAIMED" && item.isClaimed) return false;
+    if (filters.ownership === "MINE" && !item.isMine) return false;
+    const snoozeMode = filters.snooze ?? "ACTIVE";
+    if (snoozeMode === "ACTIVE" && item.isSnoozedForCurrentUser) return false;
+    if (snoozeMode === "SNOOZED" && !item.isSnoozedForCurrentUser) return false;
+    return true;
+  });
+
+  merged.sort(compareAttentionItems);
   const total = merged.length;
   const start = (page - 1) * pageSize;
   const items = merged.slice(start, start + pageSize);
@@ -603,16 +763,22 @@ export async function listAttentionItems(
 
 /**
  * Summary + top N for dashboard widget — same eligibility as listAttentionItems.
+ * Intentionally ignores personal snooze so org-wide counts stay team-visible.
  */
 export async function getAttentionSummary(
   organizationId: string,
   options?: { topN?: number }
 ): Promise<AttentionSummary> {
   const topN = options?.topN ?? DASHBOARD_TOP_N;
-  const full = await listAttentionItems(organizationId, {
-    page: 1,
-    pageSize: ATTENTION_PER_SOURCE_BOUND * 4,
-  });
+  const full = await listAttentionItems(
+    organizationId,
+    {
+      page: 1,
+      pageSize: ATTENTION_PER_SOURCE_BOUND * 4,
+      snooze: "ALL",
+    },
+    { viewerUserId: null }
+  );
 
   const bySourceType: Record<AttentionSourceType, number> = {
     SECURITY_EVENT: 0,

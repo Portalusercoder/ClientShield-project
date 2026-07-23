@@ -1,12 +1,10 @@
 /**
- * Derived SOC attention queue types (read-time; no persisted attention rows).
+ * Derived SOC attention queue types.
+ * Overlay ack/claim/snooze is joined at read time; eligibility stays derived.
  */
+import type { AttentionSourceType } from "@prisma/client";
 
-export type AttentionSourceType =
-  | "SECURITY_EVENT"
-  | "FINDING"
-  | "INVESTIGATION"
-  | "INCIDENT";
+export type { AttentionSourceType };
 
 export type AttentionSeverity = "CRITICAL" | "HIGH";
 
@@ -14,23 +12,27 @@ export type AttentionAttributionFilter = "ALL" | "ATTRIBUTED" | "UNATTRIBUTED";
 
 export type AttentionOverdueFilter = "ALL" | "OVERDUE";
 
+export type AttentionAckFilter = "ALL" | "UNACKNOWLEDGED" | "ACKNOWLEDGED";
+
+export type AttentionOwnershipFilter = "ALL" | "UNCLAIMED" | "MINE";
+
+/** ACTIVE = hide personal snooze (default). SNOOZED = only snoozed. ALL = include both. */
+export type AttentionSnoozeFilter = "ACTIVE" | "SNOOZED" | "ALL";
+
 export interface AttentionItem {
   /** Deterministic: `${sourceType}:${sourceId}` */
   key: string;
   sourceType: AttentionSourceType;
   sourceId: string;
   organizationId: string;
+  eligibilityGeneration: string;
   clientId: string | null;
-  /** Display name, or null when unattributed */
   clientName: string | null;
-  /** True when clientId is null — UI must show "Unattributed" */
   isUnattributed: boolean;
   assetId: string | null;
   assetName: string | null;
   severity: AttentionSeverity;
-  /** Higher = more urgent (CRITICAL=100, HIGH=50) */
   severityRank: number;
-  /** Incident > Investigation > SecurityEvent > Finding */
   sourceRank: number;
   title: string;
   reasons: string[];
@@ -38,21 +40,40 @@ export interface AttentionItem {
   waitingSince: Date;
   dueDate: Date | null;
   overdue: boolean;
+  /** Legacy alias — prefer ownerUserId */
   assigneeId: string | null;
   assigneeName: string | null;
   href: string;
+  // Overlay / normalized ownership
+  acknowledged: boolean;
+  acknowledgedAt: Date | null;
+  acknowledgedByUserId: string | null;
+  acknowledgedByName: string | null;
+  ownerUserId: string | null;
+  ownerName: string | null;
+  isClaimed: boolean;
+  isMine: boolean;
+  isSnoozedForCurrentUser: boolean;
+  snoozedUntil: Date | null;
 }
 
 export interface AttentionFilters {
   clientId?: string;
   sourceType?: AttentionSourceType | "ALL";
   severity?: AttentionSeverity | "ALL";
-  /** Exact source status string match when set (source-specific enums) */
   status?: string | "ALL";
   attribution?: AttentionAttributionFilter;
   overdue?: AttentionOverdueFilter;
+  acknowledgement?: AttentionAckFilter;
+  ownership?: AttentionOwnershipFilter;
+  snooze?: AttentionSnoozeFilter;
   page?: number;
   pageSize?: number;
+}
+
+export interface AttentionListOptions {
+  /** Required for personal snooze + isMine */
+  viewerUserId?: string | null;
 }
 
 export interface AttentionListResult {
@@ -60,7 +81,6 @@ export interface AttentionListResult {
   total: number;
   page: number;
   pageSize: number;
-  /** True when any per-source fetch hit its bound (merge may be incomplete) */
   truncated: boolean;
   perSourceBound: number;
 }
@@ -74,3 +94,10 @@ export interface AttentionSummary {
   topItems: AttentionItem[];
   truncated: boolean;
 }
+
+export type AttentionSnoozePreset =
+  | "MINUTES_15"
+  | "HOUR_1"
+  | "HOURS_4"
+  | "UNTIL_TOMORROW"
+  | "CUSTOM";

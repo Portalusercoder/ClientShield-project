@@ -2,13 +2,17 @@ import type { Metadata } from "next";
 import { Suspense } from "react";
 import { AttentionPageClient } from "@/components/attention/attention-page-client";
 import { requireSession } from "@/lib/auth";
+import { hasMinimumRole } from "@/lib/auth/permissions";
 import { prisma } from "@/lib/db";
 import { listAttentionItems } from "@/services/attention/attention.service";
 import type {
+  AttentionAckFilter,
   AttentionAttributionFilter,
   AttentionFilters,
   AttentionOverdueFilter,
+  AttentionOwnershipFilter,
   AttentionSeverity,
+  AttentionSnoozeFilter,
   AttentionSourceType,
 } from "@/types/attention";
 
@@ -47,6 +51,9 @@ export default async function AttentionPage({ searchParams }: AttentionPageProps
   const statusRaw = str(params, "status");
   const attributionRaw = str(params, "attribution");
   const overdueRaw = str(params, "overdue");
+  const acknowledgementRaw = str(params, "acknowledgement");
+  const ownershipRaw = str(params, "ownership");
+  const snoozeRaw = str(params, "snooze");
   const pageRaw = str(params, "page");
 
   const filters: AttentionFilters = {
@@ -71,12 +78,27 @@ export default async function AttentionPage({ searchParams }: AttentionPageProps
       overdueRaw === "OVERDUE"
         ? ("OVERDUE" as AttentionOverdueFilter)
         : "ALL",
+    acknowledgement:
+      acknowledgementRaw === "ACKNOWLEDGED" ||
+      acknowledgementRaw === "UNACKNOWLEDGED"
+        ? (acknowledgementRaw as AttentionAckFilter)
+        : "ALL",
+    ownership:
+      ownershipRaw === "UNCLAIMED" || ownershipRaw === "MINE"
+        ? (ownershipRaw as AttentionOwnershipFilter)
+        : "ALL",
+    snooze:
+      snoozeRaw === "SNOOZED" || snoozeRaw === "ALL"
+        ? (snoozeRaw as AttentionSnoozeFilter)
+        : "ACTIVE",
     page: pageRaw ? Math.max(1, Number.parseInt(pageRaw, 10) || 1) : 1,
     pageSize: 25,
   };
 
   const [data, clients] = await Promise.all([
-    listAttentionItems(session.organizationId, filters),
+    listAttentionItems(session.organizationId, filters, {
+      viewerUserId: session.userId,
+    }),
     prisma.client.findMany({
       where: {
         organizationId: session.organizationId,
@@ -93,9 +115,9 @@ export default async function AttentionPage({ searchParams }: AttentionPageProps
       <div>
         <h1 className="text-xl font-semibold text-foreground">Attention</h1>
         <p className="mt-1 text-sm text-muted">
-          Derived SOC queue of HIGH/CRITICAL work across security events,
-          findings, investigations, and incidents. Overdue reflects finding due
-          dates only — not contractual SLA targets.
+          Derived SOC queue with shared acknowledgement, hybrid claim, and
+          personal snooze. Overdue reflects finding due dates only — not
+          contractual SLA targets. Snooze hides items for you only.
         </p>
       </div>
 
@@ -103,12 +125,18 @@ export default async function AttentionPage({ searchParams }: AttentionPageProps
         <AttentionPageClient
           data={data}
           clients={clients}
+          canMutate={hasMinimumRole(session, "ANALYST")}
+          canOverrideClaims={hasMinimumRole(session, "ADMIN")}
+          currentUserId={session.userId}
           currentClientId={clientIdRaw ?? "ALL"}
           currentSourceType={sourceTypeRaw ?? "ALL"}
           currentSeverity={severityRaw ?? "ALL"}
           currentStatus={statusRaw ?? "ALL"}
           currentAttribution={attributionRaw ?? "ALL"}
           currentOverdue={overdueRaw ?? "ALL"}
+          currentAcknowledgement={acknowledgementRaw ?? "ALL"}
+          currentOwnership={ownershipRaw ?? "ALL"}
+          currentSnooze={snoozeRaw ?? "ACTIVE"}
         />
       </Suspense>
     </div>
