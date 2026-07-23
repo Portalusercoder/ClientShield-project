@@ -13,6 +13,7 @@ import {
 import { prisma } from "@/lib/db";
 import { serverEnv } from "@/lib/env";
 import { createAuditLog } from "@/services/audit.service";
+import { notifyInvestigationConfirmed } from "@/services/notifications/notification-producers.service";
 import {
   escalateSecurityEventToIncident,
   linkSecurityEventToIncident,
@@ -865,6 +866,17 @@ export async function confirmInvestigation(input: {
     activityType: "CONFIRMED",
     message: "Investigation confirmed by analyst",
   });
+
+  await notifyInvestigationConfirmed({
+    organizationId: input.organizationId,
+    investigationId: group.id,
+    title: group.title,
+    confirmingActorId: input.actorId,
+    createdByUserId: group.createdByUserId,
+    clientId: group.clientId,
+    assetId: group.assetId,
+  });
+
   return updated;
 }
 

@@ -532,6 +532,9 @@ model Organization {
   socAttentionUserSnoozes SocAttentionUserSnooze[]
   slaPolicies            SlaPolicy[]
   incidentSlaSnapshots   IncidentSlaSnapshot[]
+  notifications          Notification[]
+  notificationRecipients NotificationRecipient[]
+  escalationEvents       EscalationEvent[]
 }
 
 model User {
@@ -579,6 +582,7 @@ model User {
   attentionAcknowledged         SocAttentionState[]    @relation("AttentionAcknowledgedBy")
   attentionClaimed              SocAttentionState[]    @relation("AttentionClaimedBy")
   attentionSnoozes              SocAttentionUserSnooze[] @relation("AttentionSnoozeUser")
+  notificationRecipients        NotificationRecipient[] @relation("NotificationRecipientUser")
 
   @@unique([organizationId, email])
   @@index([organizationId])
@@ -1014,7 +1018,8 @@ model Incident {
   evidence     IncidentEvidence[]
   investigationGroupIncidents InvestigationGroupIncident[]
   reports      Report[]
-  slaSnapshots IncidentSlaSnapshot[]
+  slaSnapshots     IncidentSlaSnapshot[]
+  escalationEvents EscalationEvent[]
 
   @@unique([organizationId, caseNumber])
   @@index([organizationId])
@@ -1914,4 +1919,144 @@ model IncidentSlaSnapshot {
   @@index([incidentId])
   @@index([organizationId, incidentId])
   @@index([policyId])
+
+  escalationEvents EscalationEvent[]
+}
+
+// ---------------------------------------------------------------------------
+// In-app notifications + SLA escalation ledger (Phases 4a–4c)
+// ---------------------------------------------------------------------------
+
+enum NotificationSeverity {
+  INFO
+  WARNING
+  HIGH
+  CRITICAL
+}
+
+enum NotificationSourceType {
+  INCIDENT
+  FINDING
+  INVESTIGATION
+  SECURITY_EVENT
+  SYSTEM
+}
+
+enum NotificationType {
+  INCIDENT_CREATED_CRITICAL
+  INCIDENT_ASSIGNED
+  FINDING_ASSIGNED
+  INVESTIGATION_CONFIRMED
+  SLA_MTTA_HALF
+  SLA_MTTA_APPROACHING
+  SLA_MTTA_BREACHED
+  SLA_MTTC_APPROACHING
+  SLA_MTTC_BREACHED
+  SLA_MTTR_APPROACHING
+  SLA_MTTR_BREACHED
+}
+
+enum EscalationTriggerType {
+  MTTA_HALF
+  MTTA_APPROACHING
+  MTTA_BREACHED
+  MTTC_APPROACHING
+  MTTC_BREACHED
+  MTTR_APPROACHING
+  MTTR_BREACHED
+}
+
+enum EscalationMetric {
+  MTTA
+  MTTC
+  MTTR
+}
+
+/// Org-scoped immutable notification. Recipients frozen at create time.
+model Notification {
+  id             String                  @id @default(cuid())
+  organizationId String
+  type           NotificationType
+  severity       NotificationSeverity
+  title          String
+  message        String
+  sourceType     NotificationSourceType
+  sourceId       String
+  /// Cached for display/filter only — never a security boundary.
+  clientId       String?
+  /// Cached for display only — never a security boundary.
+  assetId        String?
+  dedupeKey      String
+  /// Internal app path only (e.g. /incidents/{id}). Validated at create.
+  href           String?
+  createdAt      DateTime                @default(now())
+  expiresAt      DateTime?
+
+  organization Organization            @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  recipients   NotificationRecipient[]
+
+  @@unique([organizationId, dedupeKey])
+  @@index([organizationId, createdAt])
+  @@index([organizationId, type])
+  @@index([organizationId, severity])
+  @@index([organizationId, clientId])
+  @@index([organizationId, sourceType, sourceId])
+}
+
+/// Per-user inbox state for a Notification. Mutations are user-scoped only.
+model NotificationRecipient {
+  id             String    @id @default(cuid())
+  organizationId String
+  notificationId String
+  userId         String
+  readAt         DateTime?
+  dismissedAt    DateTime?
+  createdAt      DateTime  @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  notification Notification @relation(fields: [notificationId], references: [id], onDelete: Cascade)
+  user         User         @relation("NotificationRecipientUser", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([notificationId, userId])
+  @@index([organizationId, userId, createdAt])
+  @@index([organizationId, userId, readAt])
+  @@index([organizationId, userId, dismissedAt])
+  @@index([userId, dismissedAt])
+}
+
+/// Idempotent SLA escalation ledger. Notification fan-out is separate.
+model EscalationEvent {
+  id             String                @id @default(cuid())
+  organizationId String
+  incidentId     String
+  slaSnapshotId  String?
+  metric         EscalationMetric
+  triggerType    EscalationTriggerType
+  thresholdPct   Int?
+  dedupeKey      String
+  firedAt        DateTime              @default(now())
+  metadata       Json?
+
+  organization Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  incident     Incident             @relation(fields: [incidentId], references: [id], onDelete: Cascade)
+  slaSnapshot  IncidentSlaSnapshot? @relation(fields: [slaSnapshotId], references: [id], onDelete: SetNull)
+
+  @@unique([organizationId, dedupeKey])
+  @@index([organizationId, incidentId])
+  @@index([organizationId, firedAt])
+  @@index([slaSnapshotId])
+  @@index([organizationId, triggerType])
+}
+
+/// Singleton lease/heartbeat for the SLA escalation worker (id = "global").
+model SlaEscalationWorkerState {
+  id               String    @id @default("global")
+  lockedBy         String?
+  lockedAt         DateTime?
+  lockExpiresAt    DateTime?
+  lastHeartbeatAt  DateTime?
+  lastError        String?
+  lastSuccessAt    DateTime?
+  lastRunStartedAt DateTime?
+  updatedAt        DateTime  @updatedAt
 }

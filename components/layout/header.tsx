@@ -1,6 +1,7 @@
 "use client";
 
 import { usePathname } from "next/navigation";
+import { NotificationBell } from "@/components/notifications/notification-bell";
 
 const PAGE_TITLES: Record<string, string> = {
   "/": "Overview",
@@ -16,6 +17,8 @@ const PAGE_TITLES: Record<string, string> = {
   "/settings": "Settings",
   "/settings/users": "Organization Users",
   "/investigations": "Investigations",
+  "/attention": "Attention",
+  "/notifications": "Notifications",
 };
 
 function getPageTitle(pathname: string): string {
@@ -46,6 +49,8 @@ export function Header() {
           <span className="h-2 w-2 rounded-full bg-success" aria-hidden="true" />
           <span className="text-xs text-muted">System operational</span>
         </div>
+
+        <NotificationBell />
 
         <div className="flex items-center gap-3">
           <div className="hidden text-right sm:block">

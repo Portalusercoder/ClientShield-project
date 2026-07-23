@@ -18,6 +18,11 @@ import type {
 } from "@/lib/validations/incidents";
 import { createAuditLog } from "@/services/audit.service";
 import {
+  countIncidentAssignmentGeneration,
+  notifyCriticalIncidentCreated,
+  notifyIncidentAssigned,
+} from "@/services/notifications/notification-producers.service";
+import {
   createIncidentSlaSnapshot,
   evaluateIncidentSlaForIncident,
 } from "@/services/sla/sla-snapshot.service";
@@ -816,6 +821,33 @@ export async function createIncident(input: {
     reason: "CREATED",
   });
 
+  // Phase 4b: immediate in-app notifications (never from page loads).
+  if (data.severity === "CRITICAL") {
+    await notifyCriticalIncidentCreated({
+      organizationId,
+      incidentId: incident.id,
+      title: incident.title,
+      caseNumber: incident.caseNumber,
+      clientId: incident.clientId,
+      assetId: incident.assetId,
+    });
+  }
+  if (data.assignedToUserId) {
+    const generation = await countIncidentAssignmentGeneration(
+      organizationId,
+      incident.id
+    );
+    await notifyIncidentAssigned({
+      organizationId,
+      incidentId: incident.id,
+      title: incident.title,
+      assigneeUserId: data.assignedToUserId,
+      clientId: incident.clientId,
+      assetId: incident.assetId,
+      assignmentGeneration: generation,
+    });
+  }
+
   return { id: incident.id };
 }
 
@@ -1118,6 +1150,22 @@ export async function assignIncident(input: {
       to: input.data.assignedToUserId,
     },
   });
+
+  if (input.data.assignedToUserId) {
+    const generation = await countIncidentAssignmentGeneration(
+      input.organizationId,
+      incident.id
+    );
+    await notifyIncidentAssigned({
+      organizationId: input.organizationId,
+      incidentId: incident.id,
+      title: incident.title,
+      assigneeUserId: input.data.assignedToUserId,
+      clientId: incident.clientId,
+      assetId: incident.assetId,
+      assignmentGeneration: generation,
+    });
+  }
 }
 
 export async function updateIncidentResponse(input: {

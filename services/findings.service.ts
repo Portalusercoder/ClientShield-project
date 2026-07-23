@@ -8,6 +8,10 @@ import type {
 import { prisma } from "@/lib/db";
 import { sanitizeEvidence } from "@/lib/findings/sanitize-evidence";
 import { createAuditLog } from "@/services/audit.service";
+import {
+  countFindingAssignmentGeneration,
+  notifyFindingAssigned,
+} from "@/services/notifications/notification-producers.service";
 import { assertFindingTransition } from "@/services/findings/status-transitions";
 import { recalculateScoresForAsset } from "@/services/scoring/score-snapshot.service";
 import { suggestTriagePriority } from "@/services/scoring/suggest-priority.service";
@@ -692,6 +696,22 @@ export async function assignFinding(input: {
       clientId: existing.clientId,
     },
   });
+
+  if (input.data.assignedToUserId) {
+    const generation = await countFindingAssignmentGeneration(
+      input.organizationId,
+      existing.id
+    );
+    await notifyFindingAssigned({
+      organizationId: input.organizationId,
+      findingId: existing.id,
+      title: existing.title,
+      assigneeUserId: input.data.assignedToUserId,
+      clientId: existing.clientId,
+      assetId: existing.assetId,
+      assignmentGeneration: generation,
+    });
+  }
 
   const detail = await getFindingById(input.organizationId, existing.id);
   if (!detail) throw new Error("Finding not found after assign");

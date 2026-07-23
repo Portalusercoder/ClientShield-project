@@ -87,6 +87,21 @@ const serverEnvSchema = z.object({
   /** Worker identity for heartbeat/lock (defaults generated at runtime). */
   WAZUH_WORKER_ID: z.string().optional(),
 
+  /** Periodic SLA escalation evaluator (default off). */
+  SLA_ESCALATION_ENABLED: z
+    .enum(["true", "false"])
+    .default("false")
+    .transform((v) => v === "true"),
+  /** Polling interval for SLA escalation; minimum 30 seconds. Default 60. */
+  SLA_ESCALATION_INTERVAL_SECONDS: z.coerce
+    .number()
+    .int()
+    .min(30)
+    .max(3600)
+    .default(60),
+  /** Worker identity for SLA escalation lease/heartbeat. */
+  SLA_ESCALATION_WORKER_ID: z.string().optional(),
+
   /** Cross-event investigation correlation (distinct from Wazuh occurrence correlation). */
   INVESTIGATION_CORRELATION_ENABLED: z
     .enum(["true", "false"])
@@ -201,6 +216,9 @@ export const serverEnv = parseEnv(serverEnvSchema, {
   WAZUH_SYNC_INTERVAL_SECONDS: process.env.WAZUH_SYNC_INTERVAL_SECONDS,
   WAZUH_WORKER_ACTOR_USER_ID: process.env.WAZUH_WORKER_ACTOR_USER_ID,
   WAZUH_WORKER_ID: process.env.WAZUH_WORKER_ID,
+  SLA_ESCALATION_ENABLED: process.env.SLA_ESCALATION_ENABLED,
+  SLA_ESCALATION_INTERVAL_SECONDS: process.env.SLA_ESCALATION_INTERVAL_SECONDS,
+  SLA_ESCALATION_WORKER_ID: process.env.SLA_ESCALATION_WORKER_ID,
   INVESTIGATION_CORRELATION_ENABLED:
     process.env.INVESTIGATION_CORRELATION_ENABLED,
   INVESTIGATION_CORRELATION_WINDOW_HOURS:
