@@ -6,6 +6,7 @@ import type {
   IncidentSource,
   IncidentStatus,
 } from "@prisma/client";
+import type { IncidentSlaEvaluation } from "@/types/sla";
 
 export interface IncidentListItem {
   id: string;
@@ -146,7 +147,10 @@ export interface IncidentDetail {
   followUpActions: string | null;
   createdAt: Date;
   updatedAt: Date;
+  /** Elapsed MTT* deltas (legacy display) */
   sla: IncidentSlaMetrics;
+  /** Contractual SLA evaluation from active snapshot (NO_POLICY if none) */
+  contractualSla: IncidentSlaEvaluation;
   findings: IncidentLinkedFinding[];
   remediations: IncidentRelatedRemediation[];
   activities: IncidentActivityItem[];

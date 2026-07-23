@@ -1,10 +1,13 @@
 /**
  * Derived SOC attention queue types.
  * Overlay ack/claim/snooze is joined at read time; eligibility stays derived.
+ * Contractual SLA (INCIDENT snapshots) is joined at read time.
  */
 import type { AttentionSourceType } from "@prisma/client";
+import type { AttentionSlaFilter, SlaMetric, SlaState } from "@/types/sla";
 
 export type { AttentionSourceType };
+export type { AttentionSlaFilter };
 
 export type AttentionSeverity = "CRITICAL" | "HIGH";
 
@@ -55,6 +58,13 @@ export interface AttentionItem {
   isMine: boolean;
   isSnoozedForCurrentUser: boolean;
   snoozedUntil: Date | null;
+  // Contractual SLA (INCIDENT only)
+  slaState: SlaState;
+  slaMetric: SlaMetric | null;
+  slaTargetMinutes: number | null;
+  slaElapsedMinutes: number | null;
+  slaRemainingMinutes: number | null;
+  slaDueAt: Date | null;
 }
 
 export interface AttentionFilters {
@@ -67,6 +77,7 @@ export interface AttentionFilters {
   acknowledgement?: AttentionAckFilter;
   ownership?: AttentionOwnershipFilter;
   snooze?: AttentionSnoozeFilter;
+  sla?: AttentionSlaFilter;
   page?: number;
   pageSize?: number;
 }
@@ -90,6 +101,9 @@ export interface AttentionSummary {
   critical: number;
   high: number;
   overdue: number;
+  slaBreached: number;
+  slaApproaching: number;
+  hasSlaPolicies: boolean;
   bySourceType: Record<AttentionSourceType, number>;
   topItems: AttentionItem[];
   truncated: boolean;

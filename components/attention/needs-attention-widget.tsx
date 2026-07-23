@@ -38,6 +38,26 @@ export function NeedsAttentionWidget({
           <span className={summary.overdue > 0 ? "text-danger" : "text-muted"}>
             {summary.overdue} Overdue
           </span>
+          {summary.hasSlaPolicies ? (
+            <>
+              <span
+                className={
+                  summary.slaBreached > 0 ? "text-danger" : "text-muted"
+                }
+              >
+                {summary.slaBreached} SLA Breached
+              </span>
+              <span
+                className={
+                  summary.slaApproaching > 0 ? "text-warning" : "text-muted"
+                }
+              >
+                {summary.slaApproaching} SLA Approaching
+              </span>
+            </>
+          ) : (
+            <span className="text-muted">No SLA policy configured</span>
+          )}
         </div>
       </div>
 
@@ -86,6 +106,15 @@ export function NeedsAttentionWidget({
                     {item.overdue ? (
                       <span className="text-[10px] font-semibold uppercase text-danger">
                         Overdue
+                      </span>
+                    ) : null}
+                    {item.slaState === "BREACHED" ? (
+                      <span className="text-[10px] font-semibold uppercase text-danger">
+                        SLA Breached
+                      </span>
+                    ) : item.slaState === "APPROACHING" ? (
+                      <span className="text-[10px] font-semibold uppercase text-warning">
+                        SLA Approaching
                       </span>
                     ) : null}
                   </div>

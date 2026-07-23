@@ -530,6 +530,8 @@ model Organization {
   clientUserAccesses     ClientUserAccess[]
   socAttentionStates     SocAttentionState[]
   socAttentionUserSnoozes SocAttentionUserSnooze[]
+  slaPolicies            SlaPolicy[]
+  incidentSlaSnapshots   IncidentSlaSnapshot[]
 }
 
 model User {
@@ -632,6 +634,8 @@ model Client {
   services               ClientService[]
   onboarding             ClientOnboarding?
   userAccesses           ClientUserAccess[]
+  slaPolicies            SlaPolicy[]
+  incidentSlaSnapshots   IncidentSlaSnapshot[]
 
   @@unique([organizationId, slug])
   @@index([organizationId])
@@ -1010,6 +1014,7 @@ model Incident {
   evidence     IncidentEvidence[]
   investigationGroupIncidents InvestigationGroupIncident[]
   reports      Report[]
+  slaSnapshots IncidentSlaSnapshot[]
 
   @@unique([organizationId, caseNumber])
   @@index([organizationId])
@@ -1845,4 +1850,68 @@ model SocAttentionUserSnooze {
   @@index([userId, snoozedUntil])
   @@index([organizationId, snoozedUntil])
   @@index([organizationId, userId])
+}
+
+/// Contractual SLA targets for Incidents (MVP: HIGH/CRITICAL only).
+/// clientId null = organization default; non-null = client override.
+/// Uniqueness for null clientId is enforced via partial unique indexes in migration SQL.
+enum SlaSnapshotSource {
+  ORG_DEFAULT
+  CLIENT_OVERRIDE
+}
+
+model SlaPolicy {
+  id                       String           @id @default(cuid())
+  organizationId           String
+  /// null = organization-wide default for this severity
+  clientId                 String?
+  severity                 IncidentSeverity
+  mttaMinutes              Int?
+  mttcMinutes              Int?
+  mttrMinutes              Int?
+  approachingThresholdPct  Int              @default(80)
+  enabled                  Boolean          @default(true)
+  createdAt                DateTime         @default(now())
+  updatedAt                DateTime         @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  client       Client?      @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  snapshots    IncidentSlaSnapshot[]
+
+  @@index([organizationId, enabled])
+  @@index([organizationId, clientId])
+  @@index([organizationId, severity])
+  @@index([clientId])
+}
+
+/// Frozen SLA obligation for an Incident generation.
+/// New generation on create (if policy) and on reopen (if policy).
+/// Policy edits never mutate existing rows. No historical backfill.
+model IncidentSlaSnapshot {
+  id                      String            @id @default(cuid())
+  organizationId          String
+  incidentId              String
+  /// Monotonic per incident; active generation = max(generation)
+  generation              Int               @default(1)
+  policyId                String?
+  clientIdAtSnapshot      String?
+  severityAtSnapshot      IncidentSeverity
+  mttaMinutes             Int?
+  mttcMinutes             Int?
+  mttrMinutes             Int?
+  approachingThresholdPct Int
+  snapshotSource          SlaSnapshotSource
+  snappedAt               DateTime          @default(now())
+  createdAt               DateTime          @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  incident     Incident     @relation(fields: [incidentId], references: [id], onDelete: Cascade)
+  policy       SlaPolicy?   @relation(fields: [policyId], references: [id], onDelete: SetNull)
+  client       Client?      @relation(fields: [clientIdAtSnapshot], references: [id], onDelete: SetNull)
+
+  @@unique([incidentId, generation])
+  @@index([organizationId])
+  @@index([incidentId])
+  @@index([organizationId, incidentId])
+  @@index([policyId])
 }

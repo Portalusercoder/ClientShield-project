@@ -31,6 +31,7 @@
     "test:investigations": "npx tsx scripts/test-investigations.ts",
     "test:attention": "npx tsx scripts/test-attention.ts",
     "test:attention-state": "npx tsx scripts/test-attention-state.ts",
+    "test:sla": "npx tsx scripts/test-sla.ts",
     "investigations:reevaluate": "npx tsx scripts/reevaluate-investigations.ts",
     "test:wazuh-unit": "npx tsx scripts/test-wazuh-unit.ts",
     "test:wazuh-enrollment": "npx tsx scripts/test-wazuh-enrollment.ts",

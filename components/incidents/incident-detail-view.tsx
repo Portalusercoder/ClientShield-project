@@ -802,6 +802,85 @@ export function IncidentDetailView({
                   value={formatDuration(incident.sla.timeToResolveMs)}
                 />
               </dl>
+
+              <div className="mt-6 border-t border-border pt-4">
+                <p className="text-xs font-semibold uppercase tracking-wide text-muted">
+                  Contractual SLA
+                </p>
+                {incident.contractualSla.overallState === "NO_POLICY" ||
+                !incident.contractualSla.snapshot ? (
+                  <p className="mt-2 text-sm text-muted">
+                    No SLA policy configured
+                  </p>
+                ) : (
+                  <div className="mt-3 space-y-3">
+                    <dl className="grid gap-3 sm:grid-cols-2">
+                      <Field
+                        label="Overall status"
+                        value={incident.contractualSla.overallState}
+                      />
+                      <Field
+                        label="Snapshot source"
+                        value={
+                          incident.contractualSla.snapshot.snapshotSource ===
+                          "CLIENT_OVERRIDE"
+                            ? "Client Override"
+                            : "Organization Default"
+                        }
+                      />
+                      <Field
+                        label="Severity at snapshot"
+                        value={
+                          incident.contractualSla.snapshot.severityAtSnapshot
+                        }
+                      />
+                      <Field
+                        label="Approaching threshold"
+                        value={`${incident.contractualSla.snapshot.approachingThresholdPct}%`}
+                      />
+                      <Field
+                        label="Snapshot taken"
+                        value={formatDate(
+                          incident.contractualSla.snapshot.snappedAt
+                        )}
+                      />
+                      <Field
+                        label="Snapshot generation"
+                        value={String(
+                          incident.contractualSla.snapshot.generation
+                        )}
+                      />
+                    </dl>
+                    <ul className="space-y-2 text-sm">
+                      {incident.contractualSla.metrics
+                        .filter((m) => m.targetMinutes != null)
+                        .map((m) => (
+                          <li
+                            key={m.metric}
+                            className="rounded-md border border-border px-3 py-2"
+                          >
+                            <span className="font-medium text-foreground">
+                              {m.metric}
+                            </span>
+                            <span className="text-muted">
+                              {" "}
+                              · {m.state}
+                              {m.targetMinutes != null
+                                ? ` · target ${m.targetMinutes}m`
+                                : ""}
+                              {m.elapsedMinutes != null
+                                ? ` · elapsed ${Math.round(m.elapsedMinutes)}m`
+                                : ""}
+                              {!m.isCompleted && m.remainingMinutes != null
+                                ? ` · remaining ${Math.round(m.remainingMinutes)}m`
+                                : ""}
+                            </span>
+                          </li>
+                        ))}
+                    </ul>
+                  </div>
+                )}
+              </div>
             </CardContent>
           </Card>
 

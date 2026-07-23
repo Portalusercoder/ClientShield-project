@@ -41,6 +41,7 @@ interface AttentionPageClientProps {
   currentAcknowledgement: string;
   currentOwnership: string;
   currentSnooze: string;
+  currentSla: string;
 }
 
 function SelectFilter({
@@ -89,6 +90,7 @@ export function AttentionPageClient({
   currentAcknowledgement,
   currentOwnership,
   currentSnooze,
+  currentSla,
 }: AttentionPageClientProps) {
   const router = useRouter();
   const pathname = usePathname();
@@ -245,6 +247,18 @@ export function AttentionPageClient({
             { value: "ALL", label: "Include snoozed" },
           ]}
         />
+        <SelectFilter
+          label="SLA"
+          name="sla"
+          value={currentSla}
+          onChange={updateFilter}
+          options={[
+            { value: "ALL", label: "All" },
+            { value: "ON_TRACK", label: "On Track" },
+            { value: "APPROACHING", label: "Approaching" },
+            { value: "BREACHED", label: "Breached" },
+          ]}
+        />
       </div>
 
       {actionError ? (
@@ -351,6 +365,15 @@ function AttentionRow({
             {item.overdue ? (
               <span className="rounded border border-danger/40 bg-danger/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-danger">
                 Overdue
+              </span>
+            ) : null}
+            {item.slaState === "BREACHED" ? (
+              <span className="rounded border border-danger/40 bg-danger/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-danger">
+                SLA Breached
+              </span>
+            ) : item.slaState === "APPROACHING" ? (
+              <span className="rounded border border-warning/40 bg-warning/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-warning">
+                SLA Approaching
               </span>
             ) : null}
             {item.acknowledged ? (

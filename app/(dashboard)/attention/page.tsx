@@ -12,6 +12,7 @@ import type {
   AttentionOverdueFilter,
   AttentionOwnershipFilter,
   AttentionSeverity,
+  AttentionSlaFilter,
   AttentionSnoozeFilter,
   AttentionSourceType,
 } from "@/types/attention";
@@ -54,6 +55,7 @@ export default async function AttentionPage({ searchParams }: AttentionPageProps
   const acknowledgementRaw = str(params, "acknowledgement");
   const ownershipRaw = str(params, "ownership");
   const snoozeRaw = str(params, "snooze");
+  const slaRaw = str(params, "sla");
   const pageRaw = str(params, "page");
 
   const filters: AttentionFilters = {
@@ -91,6 +93,12 @@ export default async function AttentionPage({ searchParams }: AttentionPageProps
       snoozeRaw === "SNOOZED" || snoozeRaw === "ALL"
         ? (snoozeRaw as AttentionSnoozeFilter)
         : "ACTIVE",
+    sla:
+      slaRaw === "ON_TRACK" ||
+      slaRaw === "APPROACHING" ||
+      slaRaw === "BREACHED"
+        ? (slaRaw as AttentionSlaFilter)
+        : "ALL",
     page: pageRaw ? Math.max(1, Number.parseInt(pageRaw, 10) || 1) : 1,
     pageSize: 25,
   };
@@ -115,9 +123,9 @@ export default async function AttentionPage({ searchParams }: AttentionPageProps
       <div>
         <h1 className="text-xl font-semibold text-foreground">Attention</h1>
         <p className="mt-1 text-sm text-muted">
-          Derived SOC queue with shared acknowledgement, hybrid claim, and
-          personal snooze. Overdue reflects finding due dates only — not
-          contractual SLA targets. Snooze hides items for you only.
+          Derived SOC queue with shared acknowledgement, hybrid claim, personal
+          snooze, and contractual Incident SLA. Finding overdue is separate from
+          SLA. Snooze hides items for you only.
         </p>
       </div>
 
@@ -137,6 +145,7 @@ export default async function AttentionPage({ searchParams }: AttentionPageProps
           currentAcknowledgement={acknowledgementRaw ?? "ALL"}
           currentOwnership={ownershipRaw ?? "ALL"}
           currentSnooze={snoozeRaw ?? "ACTIVE"}
+          currentSla={slaRaw ?? "ALL"}
         />
       </Suspense>
     </div>

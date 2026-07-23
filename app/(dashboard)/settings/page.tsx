@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { OrganizationSettingsForm } from "@/components/settings/organization-settings-form";
+import { SlaPoliciesSettings } from "@/components/settings/sla-policies-settings";
 import {
   Card,
   CardContent,
@@ -9,7 +10,9 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { hasMinimumRole, requireSession } from "@/lib/auth";
+import { prisma } from "@/lib/db";
 import { getOrganizationSettings } from "@/services/organization/organization-settings.service";
+import { listSlaPolicies } from "@/services/sla/sla-policy.service";
 
 export const metadata: Metadata = {
   title: "Settings",
@@ -21,6 +24,16 @@ export default async function SettingsPage() {
   const session = await requireSession();
   const settings = await getOrganizationSettings(session.organizationId);
   const canEdit = hasMinimumRole(session, "ADMIN");
+  const [policies, clients] = await Promise.all([
+    listSlaPolicies(session.organizationId),
+    prisma.client.findMany({
+      where: { organizationId: session.organizationId },
+      select: { id: true, name: true },
+      orderBy: { name: "asc" },
+    }),
+  ]);
+  const orgDefaults = policies.filter((p) => p.clientId == null);
+  const clientOverrides = policies.filter((p) => p.clientId != null);
 
   return (
     <div className="space-y-6">
@@ -32,6 +45,13 @@ export default async function SettingsPage() {
       </div>
 
       <OrganizationSettingsForm settings={settings} canEdit={canEdit} />
+
+      <SlaPoliciesSettings
+        orgDefaults={orgDefaults}
+        clientOverrides={clientOverrides}
+        clients={clients}
+        canEdit={canEdit}
+      />
 
       <Card>
         <CardHeader>

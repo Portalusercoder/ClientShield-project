@@ -17,6 +17,10 @@ import type {
   UpdateIncidentResponseInput,
 } from "@/lib/validations/incidents";
 import { createAuditLog } from "@/services/audit.service";
+import {
+  createIncidentSlaSnapshot,
+  evaluateIncidentSlaForIncident,
+} from "@/services/sla/sla-snapshot.service";
 import { appendIncidentActivity } from "@/services/incidents/activity";
 import { allocateNextCaseNumber } from "@/services/incidents/case-number.service";
 import {
@@ -672,8 +676,13 @@ export async function getIncidentById(
     })),
     allowedTransitions: ALLOWED_INCIDENT_TRANSITIONS[incident.status] ?? [],
     users,
+    contractualSla: await evaluateIncidentSlaForIncident({
+      organizationId,
+      incident,
+    }),
   };
 }
+
 
 export async function createIncident(input: {
   organizationId: string;
@@ -796,6 +805,15 @@ export async function createIncident(input: {
       clientId: data.clientId,
       source: data.source ?? "MANUAL",
     },
+  });
+
+  // Snapshot effective SLA obligation if HIGH/CRITICAL policy exists.
+  // No backfill for historical incidents; no snapshot when NO_POLICY.
+  await createIncidentSlaSnapshot({
+    organizationId,
+    actorId,
+    incident,
+    reason: "CREATED",
   });
 
   return { id: incident.id };
@@ -997,6 +1015,21 @@ export async function updateIncidentStatus(input: {
       ...(isReopen ? { reason: reopenReason } : {}),
     },
   });
+
+  // Reopen starts a new SLA generation from CURRENT policy (previous snapshot retained).
+  if (isReopen) {
+    await createIncidentSlaSnapshot({
+      organizationId: input.organizationId,
+      actorId: input.actorId,
+      incident: {
+        id: incident.id,
+        organizationId: incident.organizationId,
+        clientId: incident.clientId,
+        severity: incident.severity,
+      },
+      reason: "REOPENED",
+    });
+  }
 
   return { id: incident.id, status: input.status };
 }

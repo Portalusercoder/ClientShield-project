@@ -17,6 +17,11 @@ import type {
 import { prisma } from "@/lib/db";
 import { buildEligibilityGeneration } from "@/services/attention/eligibility-generation";
 import { OPEN_INCIDENT_STATUSES } from "@/services/incidents/status-transitions";
+import {
+  evaluateIncidentSla,
+  primaryActiveSlaMetric,
+} from "@/services/sla/sla-calculator.service";
+import { loadActiveSnapshotsForIncidents } from "@/services/sla/sla-snapshot.service";
 import { UNRESOLVED_FINDING_STATUSES } from "@/types/findings";
 import type {
   AttentionFilters,
@@ -26,6 +31,7 @@ import type {
   AttentionSeverity,
   AttentionSummary,
 } from "@/types/attention";
+import type { SlaState } from "@/types/sla";
 
 /** Max rows loaded per source type before merge. */
 export const ATTENTION_PER_SOURCE_BOUND = 150;
@@ -82,6 +88,12 @@ function overlayDefaults(input: {
   | "isMine"
   | "isSnoozedForCurrentUser"
   | "snoozedUntil"
+  | "slaState"
+  | "slaMetric"
+  | "slaTargetMinutes"
+  | "slaElapsedMinutes"
+  | "slaRemainingMinutes"
+  | "slaDueAt"
 > {
   return {
     eligibilityGeneration: buildEligibilityGeneration({
@@ -99,10 +111,25 @@ function overlayDefaults(input: {
     isMine: false,
     isSnoozedForCurrentUser: false,
     snoozedUntil: null,
+    slaState: "NO_POLICY",
+    slaMetric: null,
+    slaTargetMinutes: null,
+    slaElapsedMinutes: null,
+    slaRemainingMinutes: null,
+    slaDueAt: null,
   };
 }
 
+function slaPriority(state: SlaState): number {
+  if (state === "BREACHED") return 2;
+  if (state === "APPROACHING") return 1;
+  return 0;
+}
+
 function compareAttentionItems(a: AttentionItem, b: AttentionItem): number {
+  const slaA = slaPriority(a.slaState);
+  const slaB = slaPriority(b.slaState);
+  if (slaA !== slaB) return slaB - slaA;
   if (a.overdue !== b.overdue) return a.overdue ? -1 : 1;
   if (a.severityRank !== b.severityRank) return b.severityRank - a.severityRank;
   if (a.sourceRank !== b.sourceRank) return a.sourceRank - b.sourceRank;
@@ -572,6 +599,64 @@ async function fetchIncidentItems(
 }
 
 /**
+ * Join contractual SLA snapshot evaluation onto INCIDENT attention items only.
+ * Finding overdue remains non-SLA. NO_POLICY never becomes BREACHED.
+ */
+async function enrichWithIncidentSla(
+  organizationId: string,
+  items: AttentionItem[]
+): Promise<AttentionItem[]> {
+  const incidentIds = items
+    .filter((i) => i.sourceType === "INCIDENT")
+    .map((i) => i.sourceId);
+  if (incidentIds.length === 0) return items;
+
+  const [snapshots, clocks] = await Promise.all([
+    loadActiveSnapshotsForIncidents({ organizationId, incidentIds }),
+    prisma.incident.findMany({
+      where: { organizationId, id: { in: incidentIds } },
+      select: {
+        id: true,
+        detectedAt: true,
+        acknowledgedAt: true,
+        containedAt: true,
+        resolvedAt: true,
+      },
+    }),
+  ]);
+  const clockById = new Map(clocks.map((c) => [c.id, c]));
+
+  return items.map((item) => {
+    if (item.sourceType !== "INCIDENT") return item;
+    const snap = snapshots.get(item.sourceId) ?? null;
+    const clock = clockById.get(item.sourceId);
+    if (!clock) return item;
+
+    const evaluation = evaluateIncidentSla({
+      snapshot: snap,
+      clocks: {
+        detectedAt: clock.detectedAt,
+        acknowledgedAt: clock.acknowledgedAt,
+        containedAt: clock.containedAt,
+        resolvedAt: clock.resolvedAt,
+      },
+    });
+    const primary = primaryActiveSlaMetric(evaluation);
+
+    return {
+      ...item,
+      reasons: normalizeReasons([...item.reasons, ...evaluation.reasons]),
+      slaState: evaluation.overallState,
+      slaMetric: primary?.metric ?? null,
+      slaTargetMinutes: primary?.targetMinutes ?? null,
+      slaElapsedMinutes: primary?.elapsedMinutes ?? null,
+      slaRemainingMinutes: primary?.remainingMinutes ?? null,
+      slaDueAt: primary?.dueAt ?? null,
+    };
+  });
+}
+
+/**
  * Join overlay ack/claim/snooze onto derived items. Overlay never resurrects
  * ineligible sources — only enriches current eligibility set.
  */
@@ -725,6 +810,7 @@ export async function listAttentionItems(
     [...byKey.values()],
     options.viewerUserId
   );
+  merged = await enrichWithIncidentSla(organizationId, merged);
 
   merged = merged.filter((item) => {
     if (filters.acknowledgement === "ACKNOWLEDGED" && !item.acknowledged) {
@@ -738,6 +824,12 @@ export async function listAttentionItems(
     const snoozeMode = filters.snooze ?? "ACTIVE";
     if (snoozeMode === "ACTIVE" && item.isSnoozedForCurrentUser) return false;
     if (snoozeMode === "SNOOZED" && !item.isSnoozedForCurrentUser) return false;
+    const slaMode = filters.sla ?? "ALL";
+    if (slaMode === "ON_TRACK" && item.slaState !== "ON_TRACK") return false;
+    if (slaMode === "APPROACHING" && item.slaState !== "APPROACHING") {
+      return false;
+    }
+    if (slaMode === "BREACHED" && item.slaState !== "BREACHED") return false;
     return true;
   });
 
@@ -790,18 +882,29 @@ export async function getAttentionSummary(
   let critical = 0;
   let high = 0;
   let overdue = 0;
+  let slaBreached = 0;
+  let slaApproaching = 0;
   for (const item of full.items) {
     bySourceType[item.sourceType] += 1;
     if (item.severity === "CRITICAL") critical += 1;
     if (item.severity === "HIGH") high += 1;
     if (item.overdue) overdue += 1;
+    if (item.slaState === "BREACHED") slaBreached += 1;
+    if (item.slaState === "APPROACHING") slaApproaching += 1;
   }
+
+  const policyCount = await prisma.slaPolicy.count({
+    where: { organizationId, enabled: true },
+  });
 
   return {
     total: full.total,
     critical,
     high,
     overdue,
+    slaBreached,
+    slaApproaching,
+    hasSlaPolicies: policyCount > 0,
     bySourceType,
     topItems: full.items.slice(0, topN),
     truncated: full.truncated,
