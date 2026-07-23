@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { UsersAdminClient } from "@/components/settings/users-admin-client";
 import {
   Card,
   CardContent,
@@ -7,7 +8,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { requireSession } from "@/lib/auth";
+import { hasMinimumRole, requireSession } from "@/lib/auth";
 import { listOrganizationUsers } from "@/services/organization/organization-users.service";
 
 export const metadata: Metadata = {
@@ -19,6 +20,8 @@ export const dynamic = "force-dynamic";
 export default async function OrganizationUsersPage() {
   const session = await requireSession();
   const users = await listOrganizationUsers(session.organizationId);
+  const canManage = hasMinimumRole(session, "ADMIN");
+  const canCreateOwner = hasMinimumRole(session, "OWNER");
 
   return (
     <div className="space-y-6">
@@ -32,7 +35,8 @@ export default async function OrganizationUsersPage() {
           Organization users
         </h1>
         <p className="mt-1 text-sm text-muted">
-          Users authenticated into this ClientShield organization tenant.
+          Provision users locally, then link their Auth0 subject (`sub`) before
+          first login. Invitation emails are not sent.
         </p>
       </div>
 
@@ -40,40 +44,16 @@ export default async function OrganizationUsersPage() {
         <CardHeader>
           <CardTitle>Members</CardTitle>
           <CardDescription>
-            Invitations will be available after production authentication is
-            configured. No invitation emails are sent from this development
-            environment.
+            Authorization (organization and role) always comes from this
+            ClientShield directory — not from IdP claims.
           </CardDescription>
         </CardHeader>
         <CardContent>
-          {users.length === 0 ? (
-            <p className="text-sm text-muted">
-              No users found for this organization.
-            </p>
-          ) : (
-            <div className="overflow-x-auto rounded-lg border border-border">
-              <table className="w-full text-left text-sm">
-                <thead>
-                  <tr className="border-b border-border bg-surface-elevated">
-                    <th className="px-4 py-3 font-medium text-muted">Name</th>
-                    <th className="px-4 py-3 font-medium text-muted">Email</th>
-                    <th className="px-4 py-3 font-medium text-muted">Role</th>
-                    <th className="px-4 py-3 font-medium text-muted">Status</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-border">
-                  {users.map((user) => (
-                    <tr key={user.id}>
-                      <td className="px-4 py-3">{user.name ?? "—"}</td>
-                      <td className="px-4 py-3 text-muted">{user.email}</td>
-                      <td className="px-4 py-3">{user.role}</td>
-                      <td className="px-4 py-3 text-muted">Active</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
+          <UsersAdminClient
+            users={users}
+            canManage={canManage}
+            canCreateOwner={canCreateOwner}
+          />
         </CardContent>
       </Card>
     </div>

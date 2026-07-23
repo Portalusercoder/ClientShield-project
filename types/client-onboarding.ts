@@ -123,6 +123,10 @@ export interface OrganizationUserListItem {
   name: string | null;
   email: string;
   role: string;
+  externalId: string | null;
+  disabledAt: Date | null;
+  lastLoginAt: Date | null;
+  status: "ACTIVE" | "DISABLED";
 }
 
 /** Lightweight readiness for list views. */

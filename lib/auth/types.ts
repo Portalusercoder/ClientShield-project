@@ -1,8 +1,8 @@
 import type { UserRole } from "@prisma/client";
 
 /**
- * Authenticated session context.
- * Populated by the identity provider integration layer once auth is wired up.
+ * Authenticated ClientShield session.
+ * organizationId and role are ALWAYS sourced from the Prisma User row.
  */
 export interface AuthSession {
   userId: string;
@@ -13,7 +13,7 @@ export interface AuthSession {
   externalId: string | null;
 }
 
-export type AuthProvider = "none" | "auth0" | "clerk" | "azure-ad";
+export type AuthProvider = "none" | "auth0" | "clerk" | "azure-ad" | "oidc";
 
 export interface AuthConfig {
   provider: AuthProvider;
@@ -21,8 +21,8 @@ export interface AuthConfig {
 }
 
 /**
- * Resolves auth configuration from environment variables.
- * TODO: Extend when integrating a production identity provider.
+ * @deprecated Prefer resolveAuthRuntimeMode() from auth-config.
+ * Kept for compatibility with older imports.
  */
 export function getAuthConfig(): AuthConfig {
   return {

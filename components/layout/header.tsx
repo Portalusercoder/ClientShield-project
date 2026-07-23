@@ -1,6 +1,7 @@
 "use client";
 
 import { usePathname } from "next/navigation";
+import { logoutAction } from "@/app/(auth)/actions";
 import { NotificationBell } from "@/components/notifications/notification-bell";
 
 const PAGE_TITLES: Record<string, string> = {
@@ -31,9 +32,30 @@ function getPageTitle(pathname: string): string {
   return match?.[1] ?? "ClientShield";
 }
 
-export function Header() {
+function initials(name: string | null, email: string | null): string {
+  const source = (name ?? email ?? "?").trim();
+  const parts = source.split(/\s+/).filter(Boolean);
+  if (parts.length >= 2) {
+    return `${parts[0]![0]!}${parts[1]![0]!}`.toUpperCase();
+  }
+  return source.slice(0, 2).toUpperCase();
+}
+
+interface HeaderProps {
+  userName?: string | null;
+  userEmail?: string | null;
+  userRole?: string | null;
+}
+
+export function Header({
+  userName = null,
+  userEmail = null,
+  userRole = null,
+}: HeaderProps) {
   const pathname = usePathname();
   const title = getPageTitle(pathname);
+  const displayName = userName ?? userEmail ?? "Signed out";
+  const displayMeta = [userRole, userEmail].filter(Boolean).join(" · ");
 
   return (
     <header className="sticky top-0 z-20 flex h-16 items-center justify-between border-b border-border bg-background/95 px-4 backdrop-blur-sm md:px-6 lg:px-8">
@@ -54,15 +76,23 @@ export function Header() {
 
         <div className="flex items-center gap-3">
           <div className="hidden text-right sm:block">
-            <p className="text-sm font-medium text-foreground">Security Analyst</p>
-            <p className="text-xs text-muted">analyst@clientshield.local</p>
+            <p className="text-sm font-medium text-foreground">{displayName}</p>
+            <p className="text-xs text-muted">{displayMeta || "—"}</p>
           </div>
           <div
             className="flex h-9 w-9 items-center justify-center rounded-full bg-accent/20 text-sm font-medium text-accent"
             aria-label="User avatar"
           >
-            SA
+            {initials(userName, userEmail)}
           </div>
+          <form action={logoutAction}>
+            <button
+              type="submit"
+              className="text-xs text-muted hover:text-foreground"
+            >
+              Sign out
+            </button>
+          </form>
         </div>
       </div>
     </header>

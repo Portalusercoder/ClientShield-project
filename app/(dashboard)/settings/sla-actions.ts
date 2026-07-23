@@ -83,5 +83,6 @@ export async function listSlaPoliciesAction(): Promise<
   Awaited<ReturnType<typeof listSlaPolicies>>
 > {
   const session = await requireSession();
+  assertMinimumRole(session, "VIEWER");
   return listSlaPolicies(session.organizationId);
 }

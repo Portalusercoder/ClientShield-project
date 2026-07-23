@@ -51,6 +51,7 @@ export async function runSecurityCheckAction(
 
 export async function getAssetSecurityChecksAction(assetId: string) {
   const session = await requireSession();
+  assertMinimumRole(session, "VIEWER");
   const idParsed = assetIdSchema.safeParse({ id: assetId });
   if (!idParsed.success) {
     return [];
@@ -60,5 +61,6 @@ export async function getAssetSecurityChecksAction(assetId: string) {
 
 export async function getSecurityCheckDetailAction(checkId: string) {
   const session = await requireSession();
+  assertMinimumRole(session, "VIEWER");
   return getSecurityCheckById(session.organizationId, checkId);
 }

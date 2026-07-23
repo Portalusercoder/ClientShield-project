@@ -5,8 +5,7 @@ import type { OrganizationUserListItem } from "@/types/client-onboarding";
  * Lists users that belong to the organization (tenant).
  * Never returns users from other organizations.
  *
- * Invitations: stub only — do NOT send invitation emails from this service.
- * Future: create pending User / invite token and deliver via a dedicated mailer.
+ * Full invitation emails are deferred — use createOrganizationUser + linkUserExternalId.
  */
 export async function listOrganizationUsers(
   organizationId: string
@@ -18,6 +17,9 @@ export async function listOrganizationUsers(
       name: true,
       email: true,
       role: true,
+      externalId: true,
+      disabledAt: true,
+      lastLoginAt: true,
     },
     orderBy: [{ role: "asc" }, { email: "asc" }],
   });
@@ -27,12 +29,16 @@ export async function listOrganizationUsers(
     name: u.name,
     email: u.email,
     role: u.role,
+    externalId: u.externalId,
+    disabledAt: u.disabledAt,
+    lastLoginAt: u.lastLoginAt,
+    status: u.disabledAt ? "DISABLED" : "ACTIVE",
   }));
 }
 
 /**
- * Invitation stub — intentionally does not send email or create portal access.
- * Callers should gate on ADMIN and implement token + mailer separately.
+ * @deprecated Invitation emails remain unimplemented.
+ * Prefer createOrganizationUserAction + linkUserExternalIdAction.
  */
 export async function inviteOrganizationUserStub(
   organizationId: string,
@@ -42,6 +48,6 @@ export async function inviteOrganizationUserStub(
   return {
     accepted: false,
     message:
-      "User invitations are not implemented. Add the user via your identity provider, then ensure they exist in this organization. No invitation email was sent.",
+      "User invitation emails are not implemented. Create the user in Settings → Users, then link their IdP externalId. No invitation email was sent.",
   };
 }

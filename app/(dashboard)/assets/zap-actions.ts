@@ -67,6 +67,7 @@ export async function runZapBaselineScanAction(
 
 export async function listZapBaselineScansAction(assetId: string) {
   const session = await requireSession();
+  assertMinimumRole(session, "VIEWER");
   const idParsed = assetIdSchema.safeParse({ id: assetId });
   if (!idParsed.success) return [];
   return listZapBaselineScans(session.organizationId, idParsed.data.id);
@@ -74,5 +75,6 @@ export async function listZapBaselineScansAction(assetId: string) {
 
 export async function getZapBaselineScanDetailAction(scanId: string) {
   const session = await requireSession();
+  assertMinimumRole(session, "VIEWER");
   return getZapBaselineScanById(session.organizationId, scanId);
 }

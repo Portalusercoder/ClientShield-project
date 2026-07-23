@@ -153,8 +153,8 @@ export function Sidebar() {
 
       <div className="border-t border-border p-4">
         <div className="rounded-md bg-surface-elevated px-3 py-2">
-          <p className="text-xs font-medium text-foreground">MVP Foundation</p>
-          <p className="text-xs text-muted">Mock data active</p>
+          <p className="text-xs font-medium text-foreground">ClientShield SOC</p>
+          <p className="text-xs text-muted">Organization-scoped operations</p>
         </div>
       </div>
     </aside>

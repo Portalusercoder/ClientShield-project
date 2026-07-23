@@ -6,7 +6,22 @@ const serverEnvSchema = z.object({
     .default("development"),
   DATABASE_URL: z.string().min(1, "DATABASE_URL is required"),
   AUTH_SECRET: z.string().optional(),
-  AUTH_PROVIDER: z.enum(["none", "auth0", "clerk", "azure-ad"]).optional(),
+  AUTH_PROVIDER: z.enum(["none", "auth0", "clerk", "azure-ad", "oidc"]).optional(),
+  /**
+   * Development-only session bypass. Ignored and refused in production.
+   * Requires NODE_ENV=development AND AUTH_DEV_BYPASS=true.
+   */
+  AUTH_DEV_BYPASS: z
+    .enum(["true", "false"])
+    .optional()
+    .transform((v) => v === "true"),
+  AUTH0_CLIENT_ID: z.string().optional(),
+  AUTH0_CLIENT_SECRET: z.string().optional(),
+  /** Auth0 issuer URL, e.g. https://YOUR_TENANT.auth0.com */
+  AUTH0_ISSUER: z.preprocess(
+    (v) => (v === "" || v == null ? undefined : v),
+    z.string().url().optional()
+  ),
   /** Base URL for the ZAP daemon API (server-side only). */
   ZAP_API_URL: z.string().url().default("http://127.0.0.1:8090"),
   /** Shared secret for ZAP API calls. Never expose to the browser. */
@@ -188,6 +203,10 @@ export const serverEnv = parseEnv(serverEnvSchema, {
   DATABASE_URL: process.env.DATABASE_URL,
   AUTH_SECRET: process.env.AUTH_SECRET,
   AUTH_PROVIDER: process.env.AUTH_PROVIDER,
+  AUTH_DEV_BYPASS: process.env.AUTH_DEV_BYPASS,
+  AUTH0_CLIENT_ID: process.env.AUTH0_CLIENT_ID,
+  AUTH0_CLIENT_SECRET: process.env.AUTH0_CLIENT_SECRET,
+  AUTH0_ISSUER: process.env.AUTH0_ISSUER,
   ZAP_API_URL: process.env.ZAP_API_URL,
   ZAP_API_KEY: process.env.ZAP_API_KEY,
   ZAP_SPIDER_MAX_MINUTES: process.env.ZAP_SPIDER_MAX_MINUTES,

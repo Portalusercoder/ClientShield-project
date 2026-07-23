@@ -51,7 +51,7 @@ export default async function RemediationPage({
     >
       <RemediationPageClient
         data={data}
-        canUpdate={hasMinimumRole(session, "VIEWER")}
+        canUpdate={hasMinimumRole(session, "ANALYST")}
         currentSearch={search}
         currentStatus={status}
         currentSeverity={severity}

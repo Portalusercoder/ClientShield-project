@@ -544,7 +544,12 @@ model User {
   name           String?
   role           UserRole @default(VIEWER)
   /// External identity provider subject ID (Auth0, Clerk, Azure AD, etc.)
+  /// Unique when set — never share across users.
   externalId     String?
+  /// Soft-disable: non-null means login is rejected.
+  disabledAt     DateTime?
+  /// Last successful ClientShield session establishment.
+  lastLoginAt    DateTime?
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
@@ -587,6 +592,7 @@ model User {
   @@unique([organizationId, email])
   @@index([organizationId])
   @@index([externalId])
+  @@index([disabledAt])
 }
 
 model OrganizationSettings {

@@ -10,3 +10,8 @@ export {
   assertMinimumRole,
   assertOrganizationAccess,
 } from "@/lib/auth/permissions";
+export {
+  isAuthDevBypassEnabled,
+  resolveAuthRuntimeMode,
+  sanitizeReturnTo,
+} from "@/lib/auth/auth-config";

@@ -1,11 +1,16 @@
 import type { Metadata } from "next";
 import { EmptyState } from "@/components/ui/empty-state";
+import { requireSession } from "@/lib/auth";
 
 export const metadata: Metadata = {
   title: "IoT Devices",
 };
 
-export default function IoTDevicesPage() {
+export const dynamic = "force-dynamic";
+
+export default async function IoTDevicesPage() {
+  await requireSession();
+
   return (
     <EmptyState
       title="IoT Device Inventory"
