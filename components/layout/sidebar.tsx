@@ -95,27 +95,24 @@ export function Sidebar() {
 
   return (
     <aside className="fixed inset-y-0 left-0 z-30 hidden w-64 flex-col border-r border-border bg-surface lg:flex">
-      <div className="flex h-16 items-center gap-3 border-b border-border px-6">
-        <div className="flex h-8 w-8 items-center justify-center rounded-md bg-accent/20">
-          <svg
-            className="h-5 w-5 text-accent"
-            width="20"
-            height="20"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-            strokeWidth={2}
-            aria-hidden="true"
-          >
-            <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75m-3-7.036A11.959 11.959 0 013.598 6 11.99 11.99 0 003 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285z" />
-          </svg>
-        </div>
-        <div>
-          <h1 className="text-sm font-semibold tracking-wide text-foreground">
-            ClientShield
-          </h1>
-          <p className="text-xs text-muted">Security Operations</p>
-        </div>
+      <div className="flex h-16 items-center gap-3 border-b border-border px-5">
+        <Link
+          href="/"
+          className="flex min-w-0 items-center gap-3"
+          aria-label="ClientShield home"
+        >
+          {/* Official brand SVG — served as-is; do not inline/recolor. */}
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src="/brand/clientshield-logo.svg"
+            alt="ClientShield"
+            width={38}
+            height={41}
+            className="h-9 w-auto shrink-0"
+            draggable={false}
+          />
+          <p className="truncate text-xs text-muted">Security Operations</p>
+        </Link>
       </div>
 
       <nav className="flex-1 overflow-y-auto px-3 py-4 scrollbar-thin">
