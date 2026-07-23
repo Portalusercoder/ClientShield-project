@@ -30,8 +30,38 @@ export async function listWazuhAgentsWithMappings(
     mappings.map((m) => [m.wazuhAgentId, m] as const)
   );
 
+  const enrollments = await prisma.wazuhAgentEnrollment.findMany({
+    where: {
+      organizationId,
+      wazuhAgentId: { not: null },
+      status: { in: ["READY", "ENROLLING", "ENROLLED", "VERIFIED"] },
+    },
+    orderBy: { updatedAt: "desc" },
+  });
+  const enrollmentByAgent = new Map<string, (typeof enrollments)[number]>();
+  for (const e of enrollments) {
+    if (e.wazuhAgentId && !enrollmentByAgent.has(e.wazuhAgentId)) {
+      enrollmentByAgent.set(e.wazuhAgentId, e);
+    }
+  }
+
   return agents.map((a) => {
     const mapping = mappingByAgent.get(a.id);
+    const enrollment = enrollmentByAgent.get(a.id);
+    const isManager = a.id === "000";
+    let inventoryRole:
+      | "MANAGER"
+      | "MAPPED_ENDPOINT"
+      | "UNMAPPED_ENDPOINT"
+      | "DISCONNECTED_ENDPOINT" = "UNMAPPED_ENDPOINT";
+    if (isManager) inventoryRole = "MANAGER";
+    else if (mapping?.status === "ACTIVE" && mapping.assetId) {
+      inventoryRole =
+        a.status?.toLowerCase() === "active"
+          ? "MAPPED_ENDPOINT"
+          : "DISCONNECTED_ENDPOINT";
+    }
+
     return {
       id: a.id,
       name: a.name,
@@ -40,11 +70,17 @@ export async function listWazuhAgentsWithMappings(
       os: a.os,
       version: a.version,
       lastKeepAlive: a.lastKeepAlive,
-      mappedClientId: mapping?.clientId ?? null,
-      mappedClientName: mapping?.client?.name ?? null,
-      mappedAssetId: mapping?.assetId ?? null,
-      mappedAssetName: mapping?.asset?.name ?? null,
-      mappingId: mapping?.id ?? null,
+      mappedClientId: mapping?.status === "ACTIVE" ? mapping.clientId ?? null : null,
+      mappedClientName:
+        mapping?.status === "ACTIVE" ? mapping.client?.name ?? null : null,
+      mappedAssetId: mapping?.status === "ACTIVE" ? mapping.assetId ?? null : null,
+      mappedAssetName:
+        mapping?.status === "ACTIVE" ? mapping.asset?.name ?? null : null,
+      mappingId: mapping?.status === "ACTIVE" ? mapping.id : null,
+      mappingStatus: mapping?.status ?? null,
+      enrollmentStatus: enrollment?.status ?? null,
+      inventoryRole,
+      mappable: !isManager,
     };
   });
 }
@@ -87,6 +123,37 @@ export async function upsertWazuhAgentMapping(input: {
     );
   }
 
+  const existingAgent = await prisma.wazuhAgentMapping.findFirst({
+    where: {
+      organizationId: input.organizationId,
+      wazuhAgentId: input.wazuhAgentId,
+      status: "ACTIVE",
+    },
+  });
+  if (
+    existingAgent &&
+    (existingAgent.clientId !== input.clientId ||
+      existingAgent.assetId !== input.assetId)
+  ) {
+    throw new Error(
+      "Agent is already actively mapped to another client/asset. Use enrollment remap with explicit confirmation."
+    );
+  }
+
+  const existingAsset = await prisma.wazuhAgentMapping.findFirst({
+    where: {
+      organizationId: input.organizationId,
+      assetId: input.assetId,
+      status: "ACTIVE",
+      NOT: { wazuhAgentId: input.wazuhAgentId },
+    },
+  });
+  if (existingAsset) {
+    throw new Error(
+      "Asset already has a different active Wazuh agent mapping"
+    );
+  }
+
   await prisma.wazuhAgentMapping.upsert({
     where: {
       organizationId_wazuhAgentId: {
@@ -101,12 +168,16 @@ export async function upsertWazuhAgentMapping(input: {
       clientId: input.clientId,
       assetId: input.assetId,
       mappedByUserId: input.actorId,
+      status: "ACTIVE",
     },
     update: {
       wazuhAgentName: input.wazuhAgentName,
       clientId: input.clientId,
       assetId: input.assetId,
       mappedByUserId: input.actorId,
+      status: "ACTIVE",
+      inactiveAt: null,
+      inactiveReason: null,
     },
   });
 

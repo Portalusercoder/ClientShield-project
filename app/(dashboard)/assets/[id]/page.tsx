@@ -14,6 +14,11 @@ import {
   listSecurityChecks,
 } from "@/services/security-checks/security-check.service";
 import { listZapBaselineScans } from "@/services/zap/zap-baseline.service";
+import {
+  calculateEndpointWazuhReadiness,
+  listEnrollmentsForAsset,
+} from "@/services/wazuh/wazuh-enrollment.service";
+import { ENDPOINT_ENROLLMENT_ASSET_TYPES } from "@/types/wazuh-enrollment";
 
 export const dynamic = "force-dynamic";
 
@@ -44,6 +49,10 @@ export default async function AssetDetailPage({
     notFound();
   }
 
+  const isEndpoint = (
+    ENDPOINT_ENROLLMENT_ASSET_TYPES as readonly string[]
+  ).includes(asset.type);
+
   const [
     clients,
     securityChecks,
@@ -52,6 +61,8 @@ export default async function AssetDetailPage({
     findingsPosture,
     incidents,
     securityEvents,
+    enrollments,
+    endpointReadiness,
   ] = await Promise.all([
     listClientOptions(session.organizationId),
     listSecurityChecks(session.organizationId, id),
@@ -62,6 +73,12 @@ export default async function AssetDetailPage({
     (
       await import("@/services/security-events.service")
     ).listSecurityEventsForAsset(session.organizationId, id),
+    isEndpoint
+      ? listEnrollmentsForAsset(session.organizationId, id)
+      : Promise.resolve([]),
+    isEndpoint
+      ? calculateEndpointWazuhReadiness(session.organizationId, id)
+      : Promise.resolve(null),
   ]);
 
   const latestCompleted = securityChecks.find(
@@ -103,6 +120,9 @@ export default async function AssetDetailPage({
       posture={latestDetail?.summary?.posture ?? null}
       findingsPosture={findingsPosture}
       passiveCheckScore={latestDetail?.overallScore ?? null}
+      enrollments={enrollments}
+      endpointReadiness={endpointReadiness}
+      canManageEnrollment={hasMinimumRole(session, "ADMIN")}
     />
   );
 }

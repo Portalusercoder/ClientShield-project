@@ -454,6 +454,33 @@ enum ClientUserAccessRole {
   CLIENT_ADMIN
 }
 
+enum WazuhEnrollmentStatus {
+  PENDING
+  READY
+  ENROLLING
+  ENROLLED
+  VERIFIED
+  FAILED
+  EXPIRED
+  REVOKED
+}
+
+enum WazuhEnrollmentPlatform {
+  MACOS
+  WINDOWS
+  LINUX
+}
+
+enum WazuhEnrollmentArch {
+  ARM64
+  X64
+}
+
+enum WazuhAgentMappingStatus {
+  ACTIVE
+  INACTIVE
+}
+
 model Organization {
   id        String   @id @default(cuid())
   name      String
@@ -481,6 +508,7 @@ model Organization {
   securityEvents         SecurityEvent[]
   securityEventActivities SecurityEventActivity[]
   wazuhAgentMappings     WazuhAgentMapping[]
+  wazuhAgentEnrollments  WazuhAgentEnrollment[]
   wazuhIngestionStates   WazuhIngestionState[]
   wazuhProcessedAlerts   WazuhProcessedAlert[]
   incidentSecurityEvents IncidentSecurityEvent[]
@@ -536,6 +564,7 @@ model User {
   securityEventsDismissed   SecurityEvent[]   @relation("SecurityEventDismisser")
   securityEventActivities   SecurityEventActivity[] @relation("SecurityEventActivityActor")
   wazuhAgentMappings        WazuhAgentMapping[] @relation("WazuhAgentMapper")
+  wazuhAgentEnrollmentsCreated WazuhAgentEnrollment[] @relation("WazuhEnrollmentCreator")
   incidentSecurityEventLinks IncidentSecurityEvent[] @relation("IncidentSecurityEventLinker")
   investigationGroupsCreated InvestigationGroup[] @relation("InvestigationGroupCreator")
   investigationActivities   InvestigationActivity[] @relation("InvestigationActivityActor")
@@ -593,6 +622,7 @@ model Client {
   securityScoreSnapshots SecurityScoreSnapshot[]
   securityEvents         SecurityEvent[]
   wazuhAgentMappings     WazuhAgentMapping[]
+  wazuhAgentEnrollments  WazuhAgentEnrollment[]
   contacts               ClientContact[]
   services               ClientService[]
   onboarding             ClientOnboarding?
@@ -719,6 +749,7 @@ model Asset {
   incidents              Incident[]
   securityEvents         SecurityEvent[]
   wazuhAgentMappings     WazuhAgentMapping[]
+  wazuhAgentEnrollments  WazuhAgentEnrollment[]
 
   @@index([organizationId])
   @@index([clientId])
@@ -1323,6 +1354,10 @@ model WazuhAgentMapping {
   lastKnownStatus  String?
   lastSeenAt       DateTime?
   mappedByUserId   String?
+  /// ACTIVE mappings resolve SecurityEvents; INACTIVE preserves history after offboard/remap.
+  status           WazuhAgentMappingStatus @default(ACTIVE)
+  inactiveAt       DateTime?
+  inactiveReason   String?
   createdAt        DateTime  @default(now())
   updatedAt        DateTime  @updatedAt
 
@@ -1330,11 +1365,55 @@ model WazuhAgentMapping {
   client       Client?      @relation(fields: [clientId], references: [id], onDelete: SetNull)
   asset        Asset?       @relation(fields: [assetId], references: [id], onDelete: SetNull)
   mappedBy     User?        @relation("WazuhAgentMapper", fields: [mappedByUserId], references: [id], onDelete: SetNull)
+  enrollments  WazuhAgentEnrollment[]
 
   @@unique([organizationId, wazuhAgentId])
   @@index([organizationId])
   @@index([clientId])
   @@index([assetId])
+  @@index([status])
+}
+
+/// Application-layer remote endpoint enrollment. Does not store Wazuh secrets.
+model WazuhAgentEnrollment {
+  id                 String                   @id @default(cuid())
+  organizationId     String
+  clientId           String
+  assetId            String
+  agentName          String
+  expectedHostname   String
+  platform           WazuhEnrollmentPlatform
+  architecture       WazuhEnrollmentArch
+  status             WazuhEnrollmentStatus    @default(PENDING)
+  /// Non-secret connectivity hint only (e.g. "Tailscale overlay — manager on VPN IP"). Never credentials.
+  connectionHint     String?
+  requestedAt        DateTime                 @default(now())
+  expiresAt          DateTime
+  enrolledAt         DateTime?
+  verifiedAt         DateTime?
+  revokedAt          DateTime?
+  wazuhAgentId       String?
+  mappingId          String?
+  createdByUserId    String?
+  /// Sanitized operator-facing error; never secrets.
+  lastErrorSanitized String?
+  hostnameMismatch   Boolean                  @default(false)
+  observedHostname   String?
+  createdAt          DateTime                 @default(now())
+  updatedAt          DateTime                 @updatedAt
+
+  organization Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  client       Client             @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  asset        Asset              @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  createdBy    User?              @relation("WazuhEnrollmentCreator", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  mapping      WazuhAgentMapping? @relation(fields: [mappingId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId])
+  @@index([clientId])
+  @@index([assetId])
+  @@index([status])
+  @@index([expiresAt])
+  @@index([wazuhAgentId])
 }
 
 model WazuhIngestionState {

@@ -162,10 +162,22 @@ async function main() {
   readiness = await calculateClientReadiness(DEV_ORG_ID, client.id);
   check("Has assets check passes", !!readiness?.checks.find((c) => c.key === "assets")?.passed);
 
-  const wazuh = await calculateWazuhReadiness(DEV_ORG_ID, client.id);
+  let wazuh = await calculateWazuhReadiness(DEV_ORG_ID, client.id);
   check(
-    "Wazuh setup required (no mapping)",
-    wazuh?.status === "SETUP_REQUIRED"
+    "Wazuh not configured until endpoint authorized",
+    wazuh?.status === "NOT_CONFIGURED",
+    wazuh?.status
+  );
+
+  await prisma.asset.update({
+    where: { id: asset.id },
+    data: { authorizationStatus: "AUTHORIZED" },
+  });
+  wazuh = await calculateWazuhReadiness(DEV_ORG_ID, client.id);
+  check(
+    "Wazuh setup required (authorized, no enrollment/mapping)",
+    wazuh?.status === "SETUP_REQUIRED",
+    wazuh?.status
   );
 
   // Harborline wazuh connected

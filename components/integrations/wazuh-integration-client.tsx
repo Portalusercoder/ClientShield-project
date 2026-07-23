@@ -418,8 +418,9 @@ export function WazuhIntegrationClient({
         <CardHeader>
           <CardTitle>Wazuh Agents</CardTitle>
           <CardDescription>
-            Map agents to ClientShield assets. Agent 000 (wazuh.manager) must
-            remain unmapped. Mappings require analyst confirmation.
+            Map agents to ClientShield assets. Agent 000 (wazuh.manager) is
+            MANAGER — NOT MAPPABLE. Prefer enrollment workflow for remote
+            endpoints. Keepalive and enrollment status are shown when available.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -435,11 +436,14 @@ export function WazuhIntegrationClient({
                   <tr>
                     <th className="px-3 py-2">Agent ID</th>
                     <th className="px-3 py-2">Name</th>
+                    <th className="px-3 py-2">Role</th>
                     <th className="px-3 py-2">Status</th>
                     <th className="px-3 py-2">IP</th>
                     <th className="px-3 py-2">OS</th>
+                    <th className="px-3 py-2">Last Keep Alive</th>
                     <th className="px-3 py-2">Mapped Client</th>
                     <th className="px-3 py-2">Mapped Asset</th>
+                    <th className="px-3 py-2">Enrollment</th>
                     {canMapAgents && <th className="px-3 py-2">Actions</th>}
                   </tr>
                 </thead>
@@ -448,20 +452,36 @@ export function WazuhIntegrationClient({
                     <tr key={agent.id}>
                       <td className="px-3 py-2">{agent.id}</td>
                       <td className="px-3 py-2">{agent.name}</td>
-                      <td className="px-3 py-2">{agent.status}</td>
+                      <td className="px-3 py-2">
+                        <InventoryRoleBadge agent={agent} />
+                      </td>
+                      <td className="px-3 py-2">
+                        <MappingStatusLabel agent={agent} />
+                        <span className="ml-2 text-xs text-muted">
+                          ({agent.status})
+                        </span>
+                      </td>
                       <td className="px-3 py-2">{agent.ip ?? "—"}</td>
                       <td className="px-3 py-2">{agent.os ?? "—"}</td>
+                      <td className="px-3 py-2">
+                        {agent.lastKeepAlive
+                          ? formatDateTime(new Date(agent.lastKeepAlive))
+                          : "—"}
+                      </td>
                       <td className="px-3 py-2">
                         {agent.mappedClientName ?? "—"}
                       </td>
                       <td className="px-3 py-2">
                         {agent.mappedAssetName ?? "—"}
                       </td>
+                      <td className="px-3 py-2">
+                        {agent.enrollmentStatus ?? "—"}
+                      </td>
                       {canMapAgents && (
                         <td className="px-3 py-2">
-                          {agent.id === "000" ? (
+                          {agent.id === "000" || agent.mappable === false ? (
                             <span className="text-xs text-muted">
-                              Infrastructure — do not map
+                              Manager — not mappable
                             </span>
                           ) : (
                             <AgentMappingForm
@@ -502,6 +522,52 @@ function StatusRow({
       </span>
     </div>
   );
+}
+
+function InventoryRoleBadge({ agent }: { agent: WazuhAgentListItem }) {
+  const role = agent.inventoryRole;
+  if (agent.id === "000" || role === "MANAGER") {
+    return (
+      <span className="inline-flex rounded border border-border bg-surface-elevated px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted">
+        Manager — not mappable
+      </span>
+    );
+  }
+  if (role === "MAPPED_ENDPOINT") {
+    return (
+      <span className="inline-flex rounded border border-success/30 bg-success/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-success">
+        Mapped
+      </span>
+    );
+  }
+  if (role === "DISCONNECTED_ENDPOINT") {
+    return (
+      <span className="inline-flex rounded border border-severity-medium/30 bg-severity-medium/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-severity-medium">
+        Disconnected
+      </span>
+    );
+  }
+  return (
+    <span className="inline-flex rounded border border-border bg-surface-elevated px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted">
+      Unmapped
+    </span>
+  );
+}
+
+function MappingStatusLabel({ agent }: { agent: WazuhAgentListItem }) {
+  if (agent.id === "000" || agent.mappable === false) {
+    return <span className="text-xs text-muted">NOT MAPPABLE</span>;
+  }
+  if (agent.inventoryRole === "MAPPED_ENDPOINT" || agent.mappingId) {
+    if (agent.inventoryRole === "DISCONNECTED_ENDPOINT") {
+      return <span className="text-severity-medium">DISCONNECTED</span>;
+    }
+    return <span className="text-success">MAPPED</span>;
+  }
+  if (agent.inventoryRole === "DISCONNECTED_ENDPOINT") {
+    return <span className="text-severity-medium">DISCONNECTED</span>;
+  }
+  return <span className="text-muted">UNMAPPED</span>;
 }
 
 function AgentMappingForm({

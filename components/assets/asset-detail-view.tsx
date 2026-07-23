@@ -43,6 +43,11 @@ import {
   SecurityEventSeverityBadge,
   SecurityEventStatusBadge,
 } from "@/components/security-events/security-event-badges";
+import { EndpointEnrollmentPanel } from "@/components/wazuh/endpoint-enrollment-panel";
+import type {
+  EndpointWazuhReadiness,
+  WazuhAgentEnrollmentRecord,
+} from "@/types/wazuh-enrollment";
 
 type Tab =
   | "overview"
@@ -50,16 +55,10 @@ type Tab =
   | "findings"
   | "incidents"
   | "security-events"
+  | "enrollment"
   | "activity";
 
-const TABS: { id: Tab; label: string }[] = [
-  { id: "overview", label: "Overview" },
-  { id: "security-checks", label: "Security Checks" },
-  { id: "findings", label: "Findings" },
-  { id: "incidents", label: "Incidents" },
-  { id: "security-events", label: "Security Events" },
-  { id: "activity", label: "Activity" },
-];
+const ENDPOINT_TYPES = new Set(["WORKSTATION", "SERVER"]);
 
 export interface AssetFindingItem {
   id: string;
@@ -122,6 +121,9 @@ interface AssetDetailViewProps {
   } | null;
   findingsPosture: AssetPostureScoreResult;
   passiveCheckScore?: number | null;
+  enrollments?: WazuhAgentEnrollmentRecord[];
+  endpointReadiness?: EndpointWazuhReadiness | null;
+  canManageEnrollment?: boolean;
 }
 
 export function AssetDetailView({
@@ -138,6 +140,9 @@ export function AssetDetailView({
   posture,
   findingsPosture,
   passiveCheckScore,
+  enrollments = [],
+  endpointReadiness = null,
+  canManageEnrollment = false,
 }: AssetDetailViewProps) {
   const router = useRouter();
   const [activeTab, setActiveTab] = useState<Tab>("overview");
@@ -145,6 +150,19 @@ export function AssetDetailView({
   const [archiveOpen, setArchiveOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
+
+  const isEndpoint = ENDPOINT_TYPES.has(asset.type);
+  const tabs: { id: Tab; label: string }[] = [
+    { id: "overview", label: "Overview" },
+    { id: "security-checks", label: "Security Checks" },
+    { id: "findings", label: "Findings" },
+    { id: "incidents", label: "Incidents" },
+    { id: "security-events", label: "Security Events" },
+    ...(isEndpoint
+      ? [{ id: "enrollment" as const, label: "Enrollment" }]
+      : []),
+    { id: "activity", label: "Activity" },
+  ];
 
   const blockedReason = !canRunCheck
     ? getBlockedReason(asset)
@@ -196,6 +214,11 @@ export function AssetDetailView({
             canRun={canRunCheck}
             blockedReason={blockedReason}
           />
+          {ENDPOINT_TYPES.has(asset.type) && (
+            <Link href={`/assets/${asset.id}/enrollment`}>
+              <Button variant="secondary">Remote enrollment</Button>
+            </Link>
+          )}
           {canEdit && (
             <Button variant="secondary" onClick={() => setEditOpen(true)}>
               Edit Asset
@@ -210,7 +233,7 @@ export function AssetDetailView({
       </div>
 
       <nav className="flex gap-1 overflow-x-auto border-b border-border">
-        {TABS.map((tab) => (
+        {tabs.map((tab) => (
           <button
             key={tab.id}
             type="button"
@@ -300,6 +323,40 @@ export function AssetDetailView({
           </Card>
 
           <div className="space-y-4">
+            {isEndpoint && (
+              <Card>
+                <CardHeader>
+                  <CardTitle>Wazuh endpoint enrollment</CardTitle>
+                  <CardDescription>
+                    {endpointReadiness?.message ??
+                      "Prepare remote agent enrollment for this endpoint."}
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-3 text-sm">
+                  <div className="flex justify-between gap-4">
+                    <span className="text-muted">Status</span>
+                    <span className="font-medium">
+                      {endpointReadiness?.displayStatus ?? "NOT_CONFIGURED"}
+                    </span>
+                  </div>
+                  {endpointReadiness?.mappedAgentId && (
+                    <div className="flex justify-between gap-4">
+                      <span className="text-muted">Mapped agent</span>
+                      <span className="font-medium">
+                        {endpointReadiness.mappedAgentId}
+                      </span>
+                    </div>
+                  )}
+                  <Link
+                    href={`/assets/${asset.id}/enrollment`}
+                    className="inline-flex text-accent hover:underline"
+                  >
+                    Open enrollment →
+                  </Link>
+                </CardContent>
+              </Card>
+            )}
+
             <PostureScoreBreakdownCard
               posture={findingsPosture}
               passiveScore={passiveCheckScore}
@@ -323,6 +380,31 @@ export function AssetDetailView({
               </CardContent>
             </Card>
           </div>
+        </div>
+      )}
+
+      {activeTab === "enrollment" && isEndpoint && (
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <p className="text-sm text-muted">
+              Remote Wazuh agent enrollment for this endpoint.
+            </p>
+            <Link
+              href={`/assets/${asset.id}/enrollment`}
+              className="text-sm text-accent hover:underline"
+            >
+              Dedicated enrollment page
+            </Link>
+          </div>
+          <EndpointEnrollmentPanel
+            assetId={asset.id}
+            assetName={asset.name}
+            defaultHostname={asset.hostname}
+            authorizationStatus={asset.authorizationStatus}
+            canManage={canManageEnrollment}
+            readiness={endpointReadiness}
+            enrollments={enrollments}
+          />
         </div>
       )}
 

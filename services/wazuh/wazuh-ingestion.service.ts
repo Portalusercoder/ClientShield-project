@@ -340,7 +340,7 @@ export async function syncWazuhSecurityEvents(input: {
     const checkpointSnapshot = state.lastTimestamp;
 
     const mappings = await prisma.wazuhAgentMapping.findMany({
-      where: { organizationId },
+      where: { organizationId, status: "ACTIVE" },
       select: {
         wazuhAgentId: true,
         clientId: true,

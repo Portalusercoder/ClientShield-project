@@ -75,12 +75,20 @@ export interface ClientReadinessResult {
 export type WazuhReadinessStatus =
   | "CONNECTED"
   | "SETUP_REQUIRED"
-  | "NOT_APPLICABLE";
+  | "NOT_APPLICABLE"
+  | "NOT_CONFIGURED"
+  | "PENDING_ENROLLMENT"
+  | "ENROLLED"
+  | "DISCONNECTED"
+  | "MAPPING_REQUIRED"
+  | "ERROR";
 
 export interface WazuhReadinessResult {
   status: WazuhReadinessStatus;
   endpointAssetCount: number;
   mappedAgentCount: number;
+  authorizedEndpointCount?: number;
+  pendingEnrollmentCount?: number;
   message: string;
 }
 

@@ -192,4 +192,12 @@ export interface WazuhAgentListItem {
   mappedAssetId: string | null;
   mappedAssetName: string | null;
   mappingId: string | null;
+  mappingStatus?: string | null;
+  enrollmentStatus?: string | null;
+  inventoryRole?:
+    | "MANAGER"
+    | "MAPPED_ENDPOINT"
+    | "UNMAPPED_ENDPOINT"
+    | "DISCONNECTED_ENDPOINT";
+  mappable?: boolean;
 }

@@ -175,6 +175,7 @@ export async function calculateClientReadiness(
 
 /**
  * Wazuh connection readiness for a client.
+ * Manager API health alone is never enough — requires authorized endpoints + mapping.
  * Agent id "000" (manager) is excluded from mapped counts.
  */
 export async function calculateWazuhReadiness(
@@ -187,7 +188,7 @@ export async function calculateWazuhReadiness(
   });
   if (!client) return null;
 
-  const [wazuhService, endpointAssetCount, mappedAgentCount] =
+  const [wazuhService, endpointAssets, mappings, enrollments] =
     await Promise.all([
       prisma.clientService.findFirst({
         where: {
@@ -198,37 +199,126 @@ export async function calculateWazuhReadiness(
         },
         select: { id: true },
       }),
-      prisma.asset.count({
+      prisma.asset.findMany({
         where: {
           organizationId,
           clientId,
           type: { in: ENDPOINT_ASSET_TYPES },
         },
+        select: { id: true, authorizationStatus: true },
       }),
-      prisma.wazuhAgentMapping.count({
+      prisma.wazuhAgentMapping.findMany({
         where: {
           organizationId,
           clientId,
+          status: "ACTIVE",
           NOT: { wazuhAgentId: "000" },
         },
+        select: { wazuhAgentId: true, lastKnownStatus: true },
+      }),
+      prisma.wazuhAgentEnrollment.findMany({
+        where: {
+          organizationId,
+          clientId,
+          status: {
+            in: ["PENDING", "READY", "ENROLLING", "ENROLLED", "VERIFIED"],
+          },
+        },
+        select: { status: true, assetId: true },
       }),
     ]);
+
+  const endpointAssetCount = endpointAssets.length;
+  const authorizedEndpointCount = endpointAssets.filter(
+    (a) => a.authorizationStatus === "AUTHORIZED"
+  ).length;
+  const mappedAgentCount = mappings.length;
+  const pendingEnrollmentCount = enrollments.filter((e) =>
+    ["PENDING", "READY", "ENROLLING"].includes(e.status)
+  ).length;
+  const verifiedUnmapped = enrollments.filter(
+    (e) => e.status === "VERIFIED" || e.status === "ENROLLED"
+  ).length;
 
   if (!wazuhService) {
     return {
       status: "NOT_APPLICABLE",
       endpointAssetCount,
       mappedAgentCount,
+      authorizedEndpointCount,
+      pendingEnrollmentCount,
       message: "Wazuh endpoint monitoring is not enabled for this client",
     };
   }
 
-  if (mappedAgentCount >= 1 && endpointAssetCount >= 1) {
+  if (endpointAssetCount < 1) {
+    return {
+      status: "NOT_CONFIGURED",
+      endpointAssetCount,
+      mappedAgentCount,
+      authorizedEndpointCount,
+      pendingEnrollmentCount,
+      message: "Add workstation or server assets for Wazuh monitoring",
+    };
+  }
+
+  if (authorizedEndpointCount < 1) {
+    return {
+      status: "NOT_CONFIGURED",
+      endpointAssetCount,
+      mappedAgentCount,
+      authorizedEndpointCount,
+      pendingEnrollmentCount,
+      message: "Authorize at least one endpoint asset before enrollment",
+    };
+  }
+
+  if (mappedAgentCount >= 1) {
+    const disconnected = mappings.some(
+      (m) =>
+        m.lastKnownStatus &&
+        m.lastKnownStatus.toLowerCase() !== "active"
+    );
+    if (disconnected) {
+      return {
+        status: "DISCONNECTED",
+        endpointAssetCount,
+        mappedAgentCount,
+        authorizedEndpointCount,
+        pendingEnrollmentCount,
+        message: `${mappedAgentCount} mapped agent(s); at least one is not active in last-known status`,
+      };
+    }
     return {
       status: "CONNECTED",
       endpointAssetCount,
       mappedAgentCount,
-      message: `${mappedAgentCount} agent(s) mapped to ${endpointAssetCount} endpoint asset(s)`,
+      authorizedEndpointCount,
+      pendingEnrollmentCount,
+      message: `${mappedAgentCount} agent(s) mapped to authorized endpoint asset(s)`,
+    };
+  }
+
+  if (verifiedUnmapped >= 1) {
+    return {
+      status: "MAPPING_REQUIRED",
+      endpointAssetCount,
+      mappedAgentCount,
+      authorizedEndpointCount,
+      pendingEnrollmentCount,
+      message:
+        "Enrollment verified in Wazuh inventory — complete explicit asset mapping",
+    };
+  }
+
+  if (pendingEnrollmentCount >= 1) {
+    return {
+      status: "PENDING_ENROLLMENT",
+      endpointAssetCount,
+      mappedAgentCount,
+      authorizedEndpointCount,
+      pendingEnrollmentCount,
+      message: `${pendingEnrollmentCount} enrollment(s) awaiting agent install/verify`,
     };
   }
 
@@ -236,9 +326,9 @@ export async function calculateWazuhReadiness(
     status: "SETUP_REQUIRED",
     endpointAssetCount,
     mappedAgentCount,
+    authorizedEndpointCount,
+    pendingEnrollmentCount,
     message:
-      endpointAssetCount < 1
-        ? "Add workstation or server assets, then map Wazuh agents"
-        : "Map at least one Wazuh agent (excluding manager agent 000)",
+      "Prepare remote enrollment for an authorized endpoint, then verify and map the agent",
   };
 }
