@@ -4,6 +4,7 @@ import {
   MOCK_REMEDIATION_METRICS,
   MOCK_SEVERITY_DISTRIBUTION,
 } from "@/lib/mock-data/dashboard";
+import { getAttentionSummary } from "@/services/attention/attention.service";
 import { countMonitoredAssets } from "@/services/assets.service";
 import {
   countClients,
@@ -54,6 +55,7 @@ export async function getDashboardData(
     posture,
     clientManagement,
     clientsRequiringAttention,
+    attentionSummary,
   ] = await Promise.all([
     countClients(organizationId),
     countMonitoredAssets(organizationId),
@@ -70,6 +72,7 @@ export async function getDashboardData(
     calculateOrganizationSecurityPosture(organizationId),
     getClientManagementMetrics(organizationId),
     getClientsRequiringAttention(organizationId),
+    getAttentionSummary(organizationId, { topN: 8 }),
   ]);
 
   return {
@@ -101,6 +104,7 @@ export async function getDashboardData(
     topWazuhRules: securityEventSoc.topRules,
     topAffectedAssets: securityEventSoc.topAssets,
     clientsRequiringAttention,
+    attentionSummary,
     recentFindings: recentFindingsRaw.map((f) => ({
       id: f.id,
       title: f.title,

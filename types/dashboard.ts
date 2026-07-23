@@ -1,4 +1,5 @@
 import type { FindingSeverity } from "@prisma/client";
+import type { AttentionSummary } from "@/types/attention";
 import type { IncidentCaseMetrics } from "@/types/incident-case";
 import type { InvestigationMetrics } from "@/types/investigations";
 import type { DashboardIncident } from "@/types/incidents";
@@ -90,6 +91,7 @@ export interface DashboardData {
     count: number;
   }[];
   clientsRequiringAttention: DashboardClientAttention[];
+  attentionSummary: AttentionSummary;
   recentFindings: DashboardFinding[];
   recentIncidents: DashboardIncident[];
   recentSecurityEvents: DashboardSecurityEvent[];

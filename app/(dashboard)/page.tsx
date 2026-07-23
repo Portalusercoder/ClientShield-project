@@ -7,6 +7,7 @@ import {
   RecentSecurityEventsList,
   RemediationPerformance,
 } from "@/components/dashboard/dashboard-sections";
+import { NeedsAttentionWidget } from "@/components/attention/needs-attention-widget";
 import { SeverityDistributionChart } from "@/components/dashboard/severity-badge";
 import {
   Card,
@@ -79,6 +80,19 @@ export default async function OverviewPage() {
           />
         </div>
       </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Needs Attention</CardTitle>
+          <CardDescription>
+            HIGH/CRITICAL work across events, findings, investigations, and
+            incidents (same eligibility as /attention)
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <NeedsAttentionWidget summary={data.attentionSummary} />
+        </CardContent>
+      </Card>
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6">
         <StatCard label="Total Clients" value={stats.totalClients} />

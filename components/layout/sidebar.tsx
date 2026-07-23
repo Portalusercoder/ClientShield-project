@@ -14,6 +14,7 @@ const NAV_ITEMS: NavItem[] = [
   { label: "Incidents", href: "/incidents", icon: "alert" },
   { label: "Security Events", href: "/security-events", icon: "shield" },
   { label: "Investigations", href: "/investigations", icon: "search" },
+  { label: "Attention", href: "/attention", icon: "alert" },
   { label: "IoT Devices", href: "/iot-devices", icon: "cpu" },
   { label: "Reports", href: "/reports", icon: "file" },
   { label: "Settings", href: "/settings", icon: "settings" },
