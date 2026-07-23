@@ -1,4 +1,8 @@
 import type { Prisma } from "@prisma/client";
+import {
+  areSameClientCohort,
+  normalizeClientId,
+} from "@/lib/client-isolation";
 import { prisma } from "@/lib/db";
 import { serverEnv } from "@/lib/env";
 import {
@@ -63,12 +67,18 @@ export async function generateCandidatesForEvent(
       return { created, updated, skipped: 1 };
     }
 
+    // Client cohort isolation: attributed peers share exact clientId;
+    // unattributed seed only sees null-client peers. Never filter by assetId.
+    const seedClientId = normalizeClientId(event.clientId);
     const peers = await prisma.securityEvent.findMany({
       where: {
         organizationId,
         id: { not: eventId },
         lastSeenAt: { gte: since },
         classification: { not: "IGNORED" },
+        ...(seedClientId
+          ? { clientId: seedClientId }
+          : { clientId: null }),
       },
       orderBy: { lastSeenAt: "desc" },
       take: 200,
@@ -77,6 +87,12 @@ export async function generateCandidatesForEvent(
     const left = await toSnapshot(organizationId, event);
 
     for (const peer of peers) {
+      // Defense in depth — never persist mismatched client cohorts
+      if (!areSameClientCohort(event.clientId, peer.clientId)) {
+        skipped += 1;
+        continue;
+      }
+
       if (peer.correlationKey === event.correlationKey) {
         skipped += 1;
         continue;
@@ -136,7 +152,6 @@ export async function generateCandidatesForEvent(
       });
       created += 1;
     }
-
     return { created, updated, skipped };
   } catch (error) {
     logCorr("error", "generateCandidatesForEvent failed", {
@@ -182,20 +197,68 @@ export async function listPendingCandidates(
   const page = options?.page ?? 1;
   const pageSize = options?.pageSize ?? 50;
   const where = { organizationId, status: "PENDING" as const };
-  const [total, rows] = await Promise.all([
-    prisma.correlationCandidate.count({ where }),
-    prisma.correlationCandidate.findMany({
-      where,
-      orderBy: [{ confidence: "desc" }, { score: "desc" }],
-      skip: (page - 1) * pageSize,
-      take: pageSize,
-      include: {
-        eventA: { select: { id: true, title: true, severity: true, ruleId: true } },
-        eventB: { select: { id: true, title: true, severity: true, ruleId: true } },
+
+  // Fetch a wider window so we can filter invalid legacy pairs without mutating them
+  const fetchTake = Math.min(pageSize * 5, 500);
+  const rows = await prisma.correlationCandidate.findMany({
+    where,
+    orderBy: [{ confidence: "desc" }, { score: "desc" }],
+    take: fetchTake,
+    include: {
+      eventA: {
+        select: {
+          id: true,
+          title: true,
+          severity: true,
+          ruleId: true,
+          clientId: true,
+        },
       },
-    }),
-  ]);
-  return { total, items: rows, page, pageSize };
+      eventB: {
+        select: {
+          id: true,
+          title: true,
+          severity: true,
+          ruleId: true,
+          clientId: true,
+        },
+      },
+    },
+  });
+
+  const valid: typeof rows = [];
+  const invalidLegacy: Array<{ id: string; eventAId: string; eventBId: string }> =
+    [];
+  for (const row of rows) {
+    if (areSameClientCohort(row.eventA.clientId, row.eventB.clientId)) {
+      valid.push(row);
+    } else {
+      invalidLegacy.push({
+        id: row.id,
+        eventAId: row.eventAId,
+        eventBId: row.eventBId,
+      });
+    }
+  }
+
+  if (invalidLegacy.length > 0) {
+    logCorr("warn", "listPendingCandidates hid invalid client-cohort pairs", {
+      organizationId,
+      count: invalidLegacy.length,
+      sampleIds: invalidLegacy.slice(0, 10).map((r) => r.id),
+    });
+  }
+
+  const total = valid.length;
+  const items = valid.slice((page - 1) * pageSize, page * pageSize);
+  return {
+    total,
+    items,
+    page,
+    pageSize,
+    invalidLegacyCandidateCount: invalidLegacy.length,
+    invalidLegacyCandidateIds: invalidLegacy.map((r) => r.id),
+  };
 }
 
 export async function acceptCandidate(input: {

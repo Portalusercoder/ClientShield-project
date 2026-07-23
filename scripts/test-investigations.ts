@@ -20,11 +20,19 @@ import {
   dismissInvestigation,
   addEvent,
   removeEvent,
+  createSystemSuggestedGroup,
 } from "../services/investigations/investigation.service";
 import {
   extractAndLinkObservablesFromSecurityEvent,
 } from "../services/investigations/observable.service";
-import { generateCandidatesForEvent } from "../services/investigations/correlation.service";
+import {
+  generateCandidatesForEvent,
+  listPendingCandidates,
+} from "../services/investigations/correlation.service";
+import {
+  areSameClientCohort,
+  assertUniformClientIds,
+} from "../lib/client-isolation";
 
 const prisma = new PrismaClient();
 
@@ -519,6 +527,355 @@ async function main() {
       err.message.includes("Cross-client linking is not allowed");
   }
   assert(crossClientCreateBlocked, "Cross-client investigation create blocked");
+
+  // --- Client cohort correlation isolation (A–H) ---
+  console.log("\nClient cohort correlation isolation");
+
+  // Helper unit checks for isolation helpers (supports H-style regressions)
+  let helperAbFailed = false;
+  try {
+    assertUniformClientIds(["client-a", "client-b"], "helper A+B");
+  } catch {
+    helperAbFailed = true;
+  }
+  assert(helperAbFailed, "Helper rejects Client A + Client B set");
+  let helperANullFailed = false;
+  try {
+    assertUniformClientIds(["client-a", null], "helper A+null");
+  } catch {
+    helperANullFailed = true;
+  }
+  assert(helperANullFailed, "Helper rejects Client A + null set");
+  assert(
+    assertUniformClientIds([null, null], "helper null") === null,
+    "Helper allows fully null/unattributed set"
+  );
+  assert(
+    assertUniformClientIds(["client-a", "client-a"], "helper A") === "client-a",
+    "Helper allows fully Client A set"
+  );
+  assert(
+    areSameClientCohort("a", "a") &&
+      areSameClientCohort(null, null) &&
+      !areSameClientCohort("a", "b") &&
+      !areSameClientCohort("a", null),
+    "areSameClientCohort cohort rules"
+  );
+
+  const sharedSignals = {
+    sourceIp: "198.51.100.77",
+    username: "corr-user",
+    processName: "corr-evil.bin",
+    mitreTechniques: ["T1059.001"],
+    severity: "HIGH" as const,
+    status: "NEW" as const,
+    classification: "ACTIONABLE" as const,
+    source: "WAZUH" as const,
+  };
+
+  const assetA2 = await prisma.asset.create({
+    data: {
+      organizationId: TEST_ORG,
+      clientId: client.id,
+      name: "Invest Asset A2",
+      type: "SERVER",
+      environment: "PRODUCTION",
+      criticality: "HIGH",
+      monitoringStatus: "ACTIVE",
+      authorizationStatus: "AUTHORIZED",
+    },
+  });
+
+  const seCorrA1 = await prisma.securityEvent.create({
+    data: {
+      organizationId: TEST_ORG,
+      clientId: client.id,
+      assetId: asset.id,
+      title: "Corr Client A host1",
+      firstSeenAt: now,
+      lastSeenAt: now,
+      correlationKey: `corr-a1-${Date.now()}`,
+      agentId: "001",
+      ...sharedSignals,
+    },
+  });
+  const seCorrA2 = await prisma.securityEvent.create({
+    data: {
+      organizationId: TEST_ORG,
+      clientId: client.id,
+      assetId: assetA2.id,
+      title: "Corr Client A host2",
+      firstSeenAt: now,
+      lastSeenAt: new Date(now.getTime() - 2 * 60_000),
+      correlationKey: `corr-a2-${Date.now()}`,
+      agentId: "002",
+      ...sharedSignals,
+    },
+  });
+  const seCorrB1 = await prisma.securityEvent.create({
+    data: {
+      organizationId: TEST_ORG,
+      clientId: clientB.id,
+      assetId: assetB.id,
+      title: "Corr Client B host",
+      firstSeenAt: now,
+      lastSeenAt: new Date(now.getTime() - 1 * 60_000),
+      correlationKey: `corr-b1-${Date.now()}`,
+      agentId: "010",
+      ...sharedSignals,
+    },
+  });
+  const seCorrNull1 = await prisma.securityEvent.create({
+    data: {
+      organizationId: TEST_ORG,
+      clientId: null,
+      assetId: null,
+      title: "Corr null host1",
+      firstSeenAt: now,
+      lastSeenAt: now,
+      correlationKey: `corr-null1-${Date.now()}`,
+      agentId: "000",
+      ...sharedSignals,
+    },
+  });
+  const seCorrNull2 = await prisma.securityEvent.create({
+    data: {
+      organizationId: TEST_ORG,
+      clientId: null,
+      assetId: null,
+      title: "Corr null host2",
+      firstSeenAt: now,
+      lastSeenAt: new Date(now.getTime() - 90_000),
+      correlationKey: `corr-null2-${Date.now()}`,
+      agentId: "099",
+      ...sharedSignals,
+    },
+  });
+
+  // A: Client A vs Client B — no candidate
+  await generateCandidatesForEvent(TEST_ORG, seCorrA1.id);
+  const abCand = await prisma.correlationCandidate.count({
+    where: {
+      organizationId: TEST_ORG,
+      OR: [
+        { eventAId: seCorrA1.id, eventBId: seCorrB1.id },
+        { eventAId: seCorrB1.id, eventBId: seCorrA1.id },
+      ],
+    },
+  });
+  assert(abCand === 0, "A: no Client A↔Client B correlation candidate");
+
+  // B: Client A vs null — no mixed candidate
+  const aNullCand = await prisma.correlationCandidate.count({
+    where: {
+      organizationId: TEST_ORG,
+      OR: [
+        { eventAId: seCorrA1.id, eventBId: seCorrNull1.id },
+        { eventAId: seCorrNull1.id, eventBId: seCorrA1.id },
+      ],
+    },
+  });
+  assert(aNullCand === 0, "B: no Client A↔null correlation candidate");
+
+  // C: two null-client events — allowed when scoring qualifies
+  const nullCandResult = await generateCandidatesForEvent(
+    TEST_ORG,
+    seCorrNull2.id
+  );
+  const nullPair = await prisma.correlationCandidate.count({
+    where: {
+      organizationId: TEST_ORG,
+      OR: [
+        { eventAId: seCorrNull1.id, eventBId: seCorrNull2.id },
+        { eventAId: seCorrNull2.id, eventBId: seCorrNull1.id },
+      ],
+    },
+  });
+  assert(
+    nullPair >= 1 || nullCandResult.created >= 1,
+    "C: null↔null correlation candidate created when score qualifies"
+  );
+
+  // D: same client, different assets — allowed
+  const multiAssetResult = await generateCandidatesForEvent(
+    TEST_ORG,
+    seCorrA2.id
+  );
+  const multiAssetCand = await prisma.correlationCandidate.count({
+    where: {
+      organizationId: TEST_ORG,
+      OR: [
+        { eventAId: seCorrA1.id, eventBId: seCorrA2.id },
+        { eventAId: seCorrA2.id, eventBId: seCorrA1.id },
+      ],
+    },
+  });
+  assert(
+    multiAssetCand >= 1 || multiAssetResult.created >= 1,
+    "D: same-client multi-asset correlation candidate created"
+  );
+
+  // E: SYSTEM_SUGGESTED Client A group must not expand with Client B
+  const sysA = await prisma.investigationGroup.create({
+    data: {
+      organizationId: TEST_ORG,
+      clientId: client.id,
+      assetId: asset.id,
+      title: "System suggested Client A isolation",
+      status: "OPEN",
+      severity: "HIGH",
+      createdByType: "SYSTEM_SUGGESTED",
+      confidence: "HIGH",
+      fingerprint: `sys-iso-a-${Date.now()}`,
+      groupingExplanation: "test isolation group",
+      events: {
+        create: [
+          {
+            organizationId: TEST_ORG,
+            securityEventId: seCorrA1.id,
+            addReason: "seed",
+          },
+          {
+            organizationId: TEST_ORG,
+            securityEventId: seCorrA2.id,
+            addReason: "seed",
+          },
+        ],
+      },
+    },
+  });
+  const beforeE = await prisma.investigationGroupEvent.count({
+    where: { groupId: sysA.id, removedAt: null },
+  });
+  // Propose Client B pair (eligible via very strong signal) — must not merge into Client A
+  await createSystemSuggestedGroup({
+    organizationId: TEST_ORG,
+    eventIds: [seCorrB1.id, seOtherClient.id],
+    reasons: ["test Client B suggestion"],
+    confidence: "HIGH",
+    hasVeryStrongSignal: true,
+    signalFamilies: ["HASH", "IP"],
+  });
+  const afterE = await prisma.investigationGroupEvent.count({
+    where: { groupId: sysA.id, removedAt: null },
+  });
+  assert(afterE === beforeE, "E: Client A system group not expanded with Client B");
+  const eHasB = await prisma.investigationGroupEvent.count({
+    where: {
+      groupId: sysA.id,
+      removedAt: null,
+      securityEventId: { in: [seCorrB1.id, seOtherClient.id] },
+    },
+  });
+  assert(eHasB === 0, "E: Client B events absent from Client A system group");
+
+  // Mixed A+B proposed set must be rejected outright
+  let mixedAbSuggestBlocked = false;
+  try {
+    await createSystemSuggestedGroup({
+      organizationId: TEST_ORG,
+      eventIds: [seCorrA1.id, seCorrB1.id],
+      reasons: ["mixed clients"],
+      confidence: "HIGH",
+      hasVeryStrongSignal: true,
+    });
+  } catch (err) {
+    mixedAbSuggestBlocked =
+      err instanceof Error &&
+      err.message.includes("Cross-client linking is not allowed");
+  }
+  assert(
+    mixedAbSuggestBlocked,
+    "E: createSystemSuggestedGroup rejects Client A+B set"
+  );
+
+  // F: SYSTEM_SUGGESTED Client A + null event merge/expand rejected
+  const beforeF = await prisma.investigationGroupEvent.count({
+    where: { groupId: sysA.id, removedAt: null },
+  });
+  await createSystemSuggestedGroup({
+    organizationId: TEST_ORG,
+    eventIds: [seCorrNull1.id, seCorrNull2.id],
+    reasons: ["null cohort suggestion"],
+    confidence: "HIGH",
+    hasVeryStrongSignal: true,
+    signalFamilies: ["HASH", "IP"],
+  });
+  const afterF = await prisma.investigationGroupEvent.count({
+    where: { groupId: sysA.id, removedAt: null },
+  });
+  assert(afterF === beforeF, "F: Client A system group not expanded with null events");
+  let mixedANullSuggestBlocked = false;
+  try {
+    await createSystemSuggestedGroup({
+      organizationId: TEST_ORG,
+      eventIds: [seCorrA1.id, seCorrNull1.id],
+      reasons: ["mixed attributed null"],
+      confidence: "HIGH",
+      hasVeryStrongSignal: true,
+    });
+  } catch (err) {
+    mixedANullSuggestBlocked =
+      err instanceof Error &&
+      err.message.includes("Cross-client linking is not allowed");
+  }
+  assert(
+    mixedANullSuggestBlocked,
+    "F: createSystemSuggestedGroup rejects Client A+null set"
+  );
+
+  // G: createInvestigation with Client A + null rejected
+  let createANullBlocked = false;
+  try {
+    await createInvestigation({
+      organizationId: TEST_ORG,
+      actorId: TEST_USER,
+      data: {
+        title: "Mixed attributed and null should fail",
+        securityEventIds: [se1.id, seCorrNull1.id],
+      },
+    });
+  } catch (err) {
+    createANullBlocked =
+      err instanceof Error &&
+      err.message.includes("Cross-client linking is not allowed");
+  }
+  assert(createANullBlocked, "G: createInvestigation rejects Client A + null");
+
+  // listPendingCandidates hides invalid legacy pairs (does not delete)
+  const [legacyA, legacyB] = seCorrA1.id < seCorrB1.id
+    ? [seCorrA1.id, seCorrB1.id]
+    : [seCorrB1.id, seCorrA1.id];
+  const legacyCand = await prisma.correlationCandidate.create({
+    data: {
+      organizationId: TEST_ORG,
+      eventAId: legacyA,
+      eventBId: legacyB,
+      score: 99,
+      confidence: "HIGH",
+      reasons: ["legacy invalid"],
+      signalFamilies: ["IP"],
+      qualityFactors: [],
+      status: "PENDING",
+      expiresAt: new Date(Date.now() + 86_400_000),
+    },
+  });
+  const listed = await listPendingCandidates(TEST_ORG, { pageSize: 200 });
+  assert(
+    !listed.items.some((i) => i.id === legacyCand.id),
+    "listPendingCandidates hides cross-client legacy candidate"
+  );
+  assert(
+    (listed.invalidLegacyCandidateCount ?? 0) >= 1,
+    "listPendingCandidates reports invalid legacy candidates"
+  );
+  const legacyStillExists = await prisma.correlationCandidate.findUnique({
+    where: { id: legacyCand.id },
+  });
+  assert(
+    legacyStillExists?.status === "PENDING",
+    "Invalid legacy candidate not deleted/mutated"
+  );
 
   await removeEvent({
     organizationId: TEST_ORG,

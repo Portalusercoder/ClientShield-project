@@ -4,9 +4,11 @@ import type {
   Prisma,
 } from "@prisma/client";
 import {
+  areSameClientCohort,
   assertCompatibleClientIds,
   assertMatchesTargetClient,
   assertUniformClientIds,
+  normalizeClientId,
 } from "@/lib/client-isolation";
 import { prisma } from "@/lib/db";
 import { serverEnv } from "@/lib/env";
@@ -469,7 +471,7 @@ export async function createSystemSuggestedGroup(input: {
     throw new Error("Insufficient events for suggested group");
   }
 
-  assertUniformClientIds(
+  const proposedClientId = assertUniformClientIds(
     events.map((e) => e.clientId),
     "system suggested investigation"
   );
@@ -501,6 +503,10 @@ export async function createSystemSuggestedGroup(input: {
       organizationId: input.organizationId,
       createdByType: "SYSTEM_SUGGESTED",
       status: { in: ["OPEN", "INVESTIGATING"] },
+      // Prefer same client scope before fingerprint/overlap matching
+      ...(proposedClientId
+        ? { clientId: proposedClientId }
+        : { clientId: null }),
     },
     include: {
       events: {
@@ -508,7 +514,11 @@ export async function createSystemSuggestedGroup(input: {
         select: {
           securityEventId: true,
           securityEvent: {
-            select: { firstSeenAt: true, lastSeenAt: true },
+            select: {
+              firstSeenAt: true,
+              lastSeenAt: true,
+              clientId: true,
+            },
           },
         },
       },
@@ -520,6 +530,17 @@ export async function createSystemSuggestedGroup(input: {
   const primaryAssetId = events.find((e) => e.assetId)?.assetId ?? null;
 
   for (const g of existingOpen) {
+    const existingClientIds = g.events.map((e) => e.securityEvent.clientId);
+    // Defense in depth: full resulting set must remain one client cohort
+    try {
+      assertUniformClientIds(
+        [...existingClientIds, ...events.map((e) => e.clientId)],
+        "system suggested investigation merge"
+      );
+    } catch {
+      continue;
+    }
+
     // Never touch confirmed / incident-linked (already filtered by status)
     if (g.fingerprint && g.fingerprint === fingerprint) {
       // expand below
@@ -624,7 +645,7 @@ export async function createSystemSuggestedGroup(input: {
   const group = await prisma.investigationGroup.create({
     data: {
       organizationId: input.organizationId,
-      clientId: events.find((e) => e.clientId)?.clientId ?? null,
+      clientId: proposedClientId,
       assetId: events.find((e) => e.assetId)?.assetId ?? null,
       title: `Potential related activity: ${assetName}`.slice(0, 300),
       status: "OPEN",
@@ -1068,7 +1089,7 @@ export async function createIncidentFromInvestigation(input: {
 export async function suggestGroupsFromPendingCandidates(
   organizationId: string
 ): Promise<{ suggested: number; skipped: number }> {
-  const pending = await prisma.correlationCandidate.findMany({
+  const pendingRaw = await prisma.correlationCandidate.findMany({
     where: {
       organizationId,
       status: "PENDING",
@@ -1077,6 +1098,30 @@ export async function suggestGroupsFromPendingCandidates(
     orderBy: { score: "desc" },
     take: 100,
   });
+
+  const eventIdSet = new Set<string>();
+  for (const c of pendingRaw) {
+    eventIdSet.add(c.eventAId);
+    eventIdSet.add(c.eventBId);
+  }
+  const eventClientRows =
+    eventIdSet.size === 0
+      ? []
+      : await prisma.securityEvent.findMany({
+          where: { organizationId, id: { in: [...eventIdSet] } },
+          select: { id: true, clientId: true },
+        });
+  const clientByEventId = new Map(
+    eventClientRows.map((e) => [e.id, normalizeClientId(e.clientId)])
+  );
+
+  // Partition by client cohort before union-find so cross-client edges never merge
+  const pending = pendingRaw.filter((c) =>
+    areSameClientCohort(
+      clientByEventId.get(c.eventAId),
+      clientByEventId.get(c.eventBId)
+    )
+  );
 
   const parent = new Map<string, string>();
   const find = (x: string): string => {
@@ -1162,12 +1207,24 @@ export async function suggestGroupsFromPendingCandidates(
 
   let suggested = 0;
   let skipped = 0;
+  // Count filtered cross-cohort pending edges as skipped
+  skipped += pendingRaw.length - pending.length;
+
   for (const [root, eventSet] of clusters) {
     if (eventSet.size < 2) {
       skipped += 1;
       continue;
     }
     const eventIds = [...eventSet];
+    // Defense in depth: refuse mixed-cohort clusters even if an edge slipped through
+    const cohortIds = eventIds.map((id) => clientByEventId.get(id) ?? null);
+    try {
+      assertUniformClientIds(cohortIds, "suggest groups from pending");
+    } catch {
+      skipped += 1;
+      continue;
+    }
+
     const events = await prisma.securityEvent.findMany({
       where: { organizationId, id: { in: eventIds } },
     });
