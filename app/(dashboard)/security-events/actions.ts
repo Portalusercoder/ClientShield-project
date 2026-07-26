@@ -382,6 +382,12 @@ export async function syncWazuhNewEventsAction(): Promise<
   try {
     const session = await requireSession();
     assertMinimumRole(session, "ANALYST");
+    const { guardAuthenticatedAction } = await import(
+      "@/lib/security/action-guard"
+    );
+    await guardAuthenticatedAction(session, "syncWazuhNewEvents", {
+      bucket: "expensive",
+    });
     const result = await syncWazuhNewEventsFromCheckpoint({
       organizationId: session.organizationId,
       actorId: session.userId,
@@ -434,6 +440,12 @@ export async function syncWazuhEventsAction(input: {
   try {
     const session = await requireSession();
     assertMinimumRole(session, "ANALYST");
+    const { guardAuthenticatedAction } = await import(
+      "@/lib/security/action-guard"
+    );
+    await guardAuthenticatedAction(session, "syncWazuhEvents", {
+      bucket: "expensive",
+    });
     const parsed = wazuhSyncSchema.safeParse(input);
     if (!parsed.success) {
       return {

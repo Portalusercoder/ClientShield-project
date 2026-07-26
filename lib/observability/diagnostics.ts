@@ -58,5 +58,11 @@ export function getLoadedConfigSummary(): Record<string, unknown> {
       process.env.INVESTIGATION_CORRELATION_ENABLED !== "false",
     publicAppUrlConfigured: Boolean(process.env.NEXT_PUBLIC_APP_URL?.trim()),
     observability: getObservabilityConfigSummary(),
+    security: {
+      enableHsts: process.env.ENABLE_HSTS ?? "(default)",
+      enableCsp: process.env.ENABLE_CSP ?? "(default)",
+      cspReportOnly: process.env.CSP_REPORT_ONLY ?? "(default)",
+      enableRateLimiting: process.env.ENABLE_RATE_LIMITING ?? "(default)",
+    },
   };
 }

@@ -174,7 +174,7 @@ export function AssetDetailView({
   function handleArchive() {
     setError(null);
     startTransition(async () => {
-      const result = await archiveAssetAction(asset.id);
+      const result = await archiveAssetAction(asset.id, "ARCHIVE");
       if (result.success) {
         setArchiveOpen(false);
         router.push("/assets");

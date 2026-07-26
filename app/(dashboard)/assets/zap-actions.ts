@@ -31,6 +31,13 @@ export async function runZapBaselineScanAction(
     const session = await requireSession();
     assertMinimumRole(session, "ANALYST");
 
+    const { guardAuthenticatedAction } = await import(
+      "@/lib/security/action-guard"
+    );
+    await guardAuthenticatedAction(session, "runZapBaselineScan", {
+      bucket: "expensive",
+    });
+
     const idParsed = assetIdSchema.safeParse({ id: assetId });
     if (!idParsed.success) {
       return { success: false, error: "Invalid asset ID" };

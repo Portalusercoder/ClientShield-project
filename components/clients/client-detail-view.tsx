@@ -246,7 +246,7 @@ export function ClientDetailView({
   function handleArchive() {
     setError(null);
     startTransition(async () => {
-      const result = await archiveClientAction(client.id);
+      const result = await archiveClientAction(client.id, "OFFBOARD");
       if (result.success) {
         setArchiveOpen(false);
         router.refresh();

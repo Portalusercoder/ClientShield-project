@@ -201,6 +201,69 @@ const serverEnvSchema = z.object({
     .optional()
     .transform((v) => (v == null ? undefined : v === "true")),
   SLOW_QUERY_MS: z.coerce.number().int().min(50).max(60_000).optional(),
+
+  /** Security hardening (Phase 6P3) */
+  ENABLE_HSTS: z
+    .enum(["true", "false"])
+    .optional()
+    .transform((v) => (v == null ? undefined : v === "true")),
+  ENABLE_CSP: z
+    .enum(["true", "false"])
+    .optional()
+    .transform((v) => (v == null ? undefined : v === "true")),
+  CSP_REPORT_ONLY: z
+    .enum(["true", "false"])
+    .optional()
+    .transform((v) => (v == null ? undefined : v === "true")),
+  ENABLE_RATE_LIMITING: z
+    .enum(["true", "false"])
+    .optional()
+    .transform((v) => (v == null ? undefined : v === "true")),
+  RATE_LIMIT_AUTH_MAX: z.coerce.number().int().min(1).max(10_000).optional(),
+  RATE_LIMIT_AUTH_WINDOW_MS: z.coerce
+    .number()
+    .int()
+    .min(1000)
+    .max(3_600_000)
+    .optional(),
+  RATE_LIMIT_API_MAX: z.coerce.number().int().min(1).max(100_000).optional(),
+  RATE_LIMIT_API_WINDOW_MS: z.coerce
+    .number()
+    .int()
+    .min(1000)
+    .max(3_600_000)
+    .optional(),
+  RATE_LIMIT_HEALTH_MAX: z.coerce.number().int().min(1).max(100_000).optional(),
+  RATE_LIMIT_HEALTH_WINDOW_MS: z.coerce
+    .number()
+    .int()
+    .min(1000)
+    .max(3_600_000)
+    .optional(),
+  RATE_LIMIT_EXPENSIVE_MAX: z.coerce
+    .number()
+    .int()
+    .min(1)
+    .max(10_000)
+    .optional(),
+  RATE_LIMIT_EXPENSIVE_WINDOW_MS: z.coerce
+    .number()
+    .int()
+    .min(1000)
+    .max(3_600_000)
+    .optional(),
+  HSTS_MAX_AGE_SECONDS: z.coerce
+    .number()
+    .int()
+    .min(60)
+    .max(63_072_000)
+    .optional(),
+  AUTH_SESSION_MAX_AGE_SECONDS: z.coerce
+    .number()
+    .int()
+    .min(300)
+    .max(604_800)
+    .optional(),
 });
 
 const clientEnvSchema = z.object({
@@ -299,6 +362,20 @@ export const serverEnv = parseEnv(serverEnvSchema, {
   ENABLE_REQUEST_LOGGING: process.env.ENABLE_REQUEST_LOGGING,
   ENABLE_METRICS: process.env.ENABLE_METRICS,
   SLOW_QUERY_MS: process.env.SLOW_QUERY_MS,
+  ENABLE_HSTS: process.env.ENABLE_HSTS,
+  ENABLE_CSP: process.env.ENABLE_CSP,
+  CSP_REPORT_ONLY: process.env.CSP_REPORT_ONLY,
+  ENABLE_RATE_LIMITING: process.env.ENABLE_RATE_LIMITING,
+  RATE_LIMIT_AUTH_MAX: process.env.RATE_LIMIT_AUTH_MAX,
+  RATE_LIMIT_AUTH_WINDOW_MS: process.env.RATE_LIMIT_AUTH_WINDOW_MS,
+  RATE_LIMIT_API_MAX: process.env.RATE_LIMIT_API_MAX,
+  RATE_LIMIT_API_WINDOW_MS: process.env.RATE_LIMIT_API_WINDOW_MS,
+  RATE_LIMIT_HEALTH_MAX: process.env.RATE_LIMIT_HEALTH_MAX,
+  RATE_LIMIT_HEALTH_WINDOW_MS: process.env.RATE_LIMIT_HEALTH_WINDOW_MS,
+  RATE_LIMIT_EXPENSIVE_MAX: process.env.RATE_LIMIT_EXPENSIVE_MAX,
+  RATE_LIMIT_EXPENSIVE_WINDOW_MS: process.env.RATE_LIMIT_EXPENSIVE_WINDOW_MS,
+  HSTS_MAX_AGE_SECONDS: process.env.HSTS_MAX_AGE_SECONDS,
+  AUTH_SESSION_MAX_AGE_SECONDS: process.env.AUTH_SESSION_MAX_AGE_SECONDS,
 });
 
 /**

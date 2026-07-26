@@ -71,6 +71,12 @@ export async function requireSession(): Promise<AuthSession> {
   const session = await getSession();
 
   if (!session) {
+    const { logSecurityEvent } = await import("@/lib/security/security-log");
+    logSecurityEvent({
+      type: "authn_failed",
+      severity: "warn",
+      message: "requireSession failed — no authenticated session",
+    });
     throw new AuthorizationError("Unauthorized");
   }
 

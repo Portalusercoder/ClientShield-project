@@ -21,6 +21,13 @@ export async function generateReportAction(
     const session = await requireSession();
     assertMinimumRole(session, "ANALYST");
 
+    const { guardAuthenticatedAction } = await import(
+      "@/lib/security/action-guard"
+    );
+    await guardAuthenticatedAction(session, "generateReport", {
+      bucket: "expensive",
+    });
+
     const parsed = generateReportSchema.safeParse({
       clientId: formData.get("clientId"),
       reportType: formData.get("reportType") || "SECURITY_POSTURE",

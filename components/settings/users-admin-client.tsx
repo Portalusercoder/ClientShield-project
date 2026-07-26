@@ -68,6 +68,8 @@ export function UsersAdminClient({
                           const res = await setUserDisabledAction({
                             userId: user.id,
                             disabled: user.status === "ACTIVE",
+                            confirmation:
+                              user.status === "ACTIVE" ? "DISABLE" : undefined,
                           });
                           setMessage(
                             res.success

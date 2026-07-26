@@ -11,6 +11,7 @@
     "test:health": "npx tsx scripts/test-health-endpoint.ts",
     "test:startup-env": "npx tsx scripts/test-startup-env.ts",
     "test:observability": "npx tsx scripts/test-observability.ts",
+    "test:security": "npx tsx scripts/test-security-hardening.ts",
     "docker:build": "docker build -t clientshield:local .",
     "compose:prod:config": "docker compose -f compose.production.yaml config",
     "db:generate": "prisma generate",

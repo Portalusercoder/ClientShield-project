@@ -241,12 +241,13 @@ curl -s "http://127.0.0.1:8090/JSON/core/view/version/?apikey=$ZAP_API_KEY"
 
 ## Security Considerations
 
+- See [SECURITY.md](./SECURITY.md) for CSP, HSTS, rate limits, cookies, and authorization audit.
 - **Secrets:** Server-side environment variables are never exposed to the client. Only `NEXT_PUBLIC_*` variables are browser-accessible. Docker builds do not bake `.env` files.
 - **Tenant isolation:** All business resources belong to an `Organization`. Server-side code must resolve `organizationId` from the authenticated session — never from client-supplied input.
 - **Input validation:** All server inputs must be validated with Zod schemas in `lib/validations/`.
 - **Authentication:** Production uses Auth0 via Auth.js. `AUTH_DEV_BYPASS` works only when `NODE_ENV=development` and is refused in production.
 - **Authorization:** Permission helpers exist in `lib/auth/permissions.ts`. ZAP scans require ANALYST+.
-- **Security headers:** Basic headers (X-Frame-Options, X-Content-Type-Options, Referrer-Policy) are set in middleware and nginx (HSTS/CSP deferred).
+- **Security headers:** Middleware emits CSP, HSTS (prod), COOP/CORP, and baseline headers (see SECURITY.md).
 - **No active scanning:** ClientShield does not invoke ZAP Active Scan, fuzzing, or exploitation in this phase.
 
 ## License

@@ -80,6 +80,7 @@ export async function linkUserExternalIdAction(input: {
 export async function setUserDisabledAction(input: {
   userId: string;
   disabled: boolean;
+  confirmation?: string;
 }): Promise<{ success: true } | { success: false; error: string }> {
   try {
     const session = await requireSession();
@@ -87,6 +88,20 @@ export async function setUserDisabledAction(input: {
 
     if (input.userId === session.userId) {
       return { success: false, error: "Cannot disable your own account" };
+    }
+
+    if (input.disabled) {
+      const { assertDestructiveConfirmation, DESTRUCTIVE_CONFIRM } =
+        await import("@/lib/security/destructive");
+      assertDestructiveConfirmation({
+        expected: DESTRUCTIVE_CONFIRM.USER_DISABLE,
+        provided: input.confirmation,
+        action: "setUserDisabled",
+        organizationId: session.organizationId,
+        userId: session.userId,
+        resourceType: "User",
+        resourceId: input.userId,
+      });
     }
 
     await setUserDisabled({

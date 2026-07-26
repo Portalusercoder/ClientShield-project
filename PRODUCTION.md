@@ -51,9 +51,9 @@ Roles via entrypoint args: `app` | `wazuh-worker` | `sla-worker`.
 - [ ] First backup taken after go-live
 - [ ] `/api/health` monitored by your load balancer / uptime check
 
-## Observability
+## Security hardening (Phase 6P3)
 
-See [OBSERVABILITY.md](./OBSERVABILITY.md) for structured logging, request/correlation IDs, metrics counters, and diagnostics. Phase 6P2 does **not** include Sentry, Prometheus, or OpenTelemetry.
+See [SECURITY.md](./SECURITY.md). Defaults: CSP on, HSTS on in production, rate limiting on, Auth.js secure cookies in production.
 
 - Automated backups
 - Centralized logging / metrics / tracing / Sentry

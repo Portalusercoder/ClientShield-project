@@ -45,6 +45,13 @@ import { assetIdSchema } from "@/lib/validations/assets";
 import type { ClientActionResult } from "@/types/client";
 
 function toActionError(error: unknown): ClientActionResult<never> {
+  if (
+    error &&
+    typeof error === "object" &&
+    (error as { name?: string }).name === "RateLimitError"
+  ) {
+    return { success: false, error: "Too many requests. Please try again later." };
+  }
   if (error instanceof Error) {
     if (error.message === "Unauthorized" || error.message === "Forbidden") {
       return { success: false, error: error.message };
@@ -174,11 +181,31 @@ export async function updateClientAction(
 }
 
 export async function archiveClientAction(
-  clientId: string
+  clientId: string,
+  confirmation?: string
 ): Promise<ClientActionResult<{ id: string }>> {
   try {
     const session = await requireSession();
     assertMinimumRole(session, "ADMIN");
+
+    const { assertDestructiveConfirmation, DESTRUCTIVE_CONFIRM } = await import(
+      "@/lib/security/destructive"
+    );
+    const { guardAuthenticatedAction } = await import(
+      "@/lib/security/action-guard"
+    );
+    await guardAuthenticatedAction(session, "archiveClient", {
+      bucket: "expensive",
+    });
+    assertDestructiveConfirmation({
+      expected: DESTRUCTIVE_CONFIRM.CLIENT_OFFBOARD,
+      provided: confirmation,
+      action: "archiveClient",
+      organizationId: session.organizationId,
+      userId: session.userId,
+      resourceType: "Client",
+      resourceId: clientId,
+    });
 
     const idParsed = clientIdSchema.safeParse({ id: clientId });
     if (!idParsed.success) {
@@ -200,7 +227,7 @@ export async function archiveClientAction(
       action: "CLIENT_ARCHIVED",
       resourceType: "Client",
       resourceId: client.id,
-      metadata: { name: client.name, status: client.status },
+      metadata: { name: client.name, status: client.status, confirmed: true },
     });
 
     revalidateClientPaths(client.id);

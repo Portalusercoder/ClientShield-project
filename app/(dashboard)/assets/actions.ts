@@ -169,11 +169,31 @@ export async function updateAssetAction(
 }
 
 export async function archiveAssetAction(
-  assetId: string
+  assetId: string,
+  confirmation?: string
 ): Promise<AssetActionResult<{ id: string }>> {
   try {
     const session = await requireSession();
     assertMinimumRole(session, "ADMIN");
+
+    const { assertDestructiveConfirmation, DESTRUCTIVE_CONFIRM } = await import(
+      "@/lib/security/destructive"
+    );
+    const { guardAuthenticatedAction } = await import(
+      "@/lib/security/action-guard"
+    );
+    await guardAuthenticatedAction(session, "archiveAsset", {
+      bucket: "expensive",
+    });
+    assertDestructiveConfirmation({
+      expected: DESTRUCTIVE_CONFIRM.ASSET_ARCHIVE,
+      provided: confirmation,
+      action: "archiveAsset",
+      organizationId: session.organizationId,
+      userId: session.userId,
+      resourceType: "Asset",
+      resourceId: assetId,
+    });
 
     const idParsed = assetIdSchema.safeParse({ id: assetId });
     if (!idParsed.success) {
@@ -195,7 +215,7 @@ export async function archiveAssetAction(
       action: "ASSET_ARCHIVED",
       resourceType: "Asset",
       resourceId: asset.id,
-      metadata: { name: asset.name },
+      metadata: { name: asset.name, confirmed: true },
     });
 
     revalidatePath("/assets");
