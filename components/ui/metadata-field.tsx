@@ -13,8 +13,12 @@ export function MetadataField({
 }) {
   return (
     <div>
-      <dt className="text-xs uppercase tracking-wide text-muted">{label}</dt>
-      <dd className="mt-1 text-sm text-foreground">{value || "—"}</dd>
+      <dt className="text-[11px] font-semibold uppercase tracking-wider text-muted">
+        {label}
+      </dt>
+      <dd className="mt-1.5 text-sm leading-relaxed text-foreground">
+        {value || "—"}
+      </dd>
     </div>
   );
 }

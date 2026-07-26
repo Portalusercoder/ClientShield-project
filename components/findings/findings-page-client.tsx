@@ -2,13 +2,8 @@
 
 import { FindingsFiltersBar } from "@/components/findings/findings-filters";
 import { FindingsTable } from "@/components/findings/findings-table";
-import {
-  Card,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
-import { formatNumber } from "@/lib/utils";
+import { PageHeader } from "@/components/ui/page-header";
+import { SummaryStrip } from "@/components/ui/summary-strip";
 import type { FindingListResult } from "@/types/findings";
 
 interface FindingsPageClientProps {
@@ -71,28 +66,12 @@ export function FindingsPageClient({
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold text-foreground">
-          Findings Management
-        </h1>
-        <p className="mt-1 text-sm text-muted">
-          Analyst triage for scanner observations and validated findings.
-          Counts are unique Findings — not FindingInstances.
-        </p>
-      </div>
+      <PageHeader
+        title="Findings"
+        description="Triage scanner observations and validated findings. Counts are unique Findings — not FindingInstances."
+      />
 
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6">
-        {cards.map((card) => (
-          <Card key={card.label}>
-            <CardHeader className="pb-2">
-              <CardDescription>{card.label}</CardDescription>
-              <CardTitle className={`text-2xl tabular-nums ${card.tone}`}>
-                {formatNumber(card.value)}
-              </CardTitle>
-            </CardHeader>
-          </Card>
-        ))}
-      </div>
+      <SummaryStrip metrics={cards} />
 
       <FindingsFiltersBar
         clients={data.clients}

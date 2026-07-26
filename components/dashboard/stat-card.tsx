@@ -6,15 +6,8 @@ interface StatCardProps {
   suffix?: string;
   variant?: "default" | "critical" | "high" | "warning" | "success";
   className?: string;
+  hint?: string;
 }
-
-const variantStyles = {
-  default: "border-border",
-  critical: "border-severity-critical/40",
-  high: "border-severity-high/40",
-  warning: "border-warning/40",
-  success: "border-success/40",
-};
 
 const valueStyles = {
   default: "text-foreground",
@@ -30,6 +23,7 @@ export function StatCard({
   suffix,
   variant = "default",
   className,
+  hint,
 }: StatCardProps) {
   const displayValue =
     typeof value === "number" ? formatNumber(value) : value;
@@ -37,20 +31,27 @@ export function StatCard({
   return (
     <div
       className={cn(
-        "rounded-lg border bg-surface px-5 py-4",
-        variantStyles[variant],
+        "rounded-[8px] border border-border bg-surface px-5 py-4 shadow-card",
         className
       )}
     >
       <p className="text-xs font-medium uppercase tracking-wider text-muted">
         {label}
       </p>
-      <p className={cn("mt-2 text-2xl font-semibold tabular-nums", valueStyles[variant])}>
+      <p
+        className={cn(
+          "mt-2 text-2xl font-semibold tabular-nums tracking-tight",
+          valueStyles[variant]
+        )}
+      >
         {displayValue}
         {suffix && (
-          <span className="ml-1 text-base font-normal text-muted">{suffix}</span>
+          <span className="ml-1 text-base font-normal text-muted">
+            {suffix}
+          </span>
         )}
       </p>
+      {hint && <p className="mt-1.5 text-xs text-muted">{hint}</p>}
     </div>
   );
 }

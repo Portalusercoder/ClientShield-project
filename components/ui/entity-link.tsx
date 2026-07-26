@@ -14,7 +14,13 @@ export function EntityLink({
   className?: string;
 }) {
   return (
-    <Link href={href} className={cn("hover:text-accent", className)}>
+    <Link
+      href={href}
+      className={cn(
+        "font-medium text-accent hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent rounded",
+        className
+      )}
+    >
       {children}
     </Link>
   );

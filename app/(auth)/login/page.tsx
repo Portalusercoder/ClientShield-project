@@ -8,6 +8,7 @@ import {
   sanitizeReturnTo,
 } from "@/lib/auth/auth-config";
 import { getSession } from "@/lib/auth/session";
+import { Button } from "@/components/ui/button";
 
 export const metadata: Metadata = {
   title: "Sign in",
@@ -39,19 +40,25 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
   }
 
   return (
-    <main className="flex min-h-screen flex-col items-center justify-center bg-background px-4">
-      <div className="w-full max-w-md space-y-6 border border-border bg-surface p-8">
-        <div className="space-y-2 text-center">
+    <main className="relative flex min-h-screen flex-col items-center justify-center bg-background px-4">
+      <div
+        className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_top,_var(--color-accent-muted),_transparent_55%)]"
+        aria-hidden="true"
+      />
+      <div className="relative w-full max-w-md space-y-6 rounded-[10px] border border-border bg-surface p-8 shadow-card">
+        <div className="space-y-3 text-center">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
-            src="/brand/clientshield-logo.svg"
-            alt="ClientShield"
-            width={48}
-            height={52}
-            className="mx-auto h-12 w-auto"
+            src="/brand/6degrees-logo.png"
+            alt="6 degrees"
+            width={200}
+            height={43}
+            className="mx-auto h-9 w-auto"
           />
-          <h1 className="text-xl font-semibold text-foreground">Sign in</h1>
-          <p className="text-sm text-muted">
+          <h1 className="text-2xl font-semibold tracking-tight text-foreground">
+            Sign in
+          </h1>
+          <p className="text-sm leading-relaxed text-muted">
             SOC access requires a provisioned ClientShield user linked to your
             identity provider account.
           </p>
@@ -59,22 +66,19 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
 
         {mode === "auth0" ? (
           <form action={startAuth0Login}>
-            <button
-              type="submit"
-              className="w-full rounded-md bg-accent px-4 py-2.5 text-sm font-medium text-white hover:opacity-90"
-            >
+            <Button type="submit" className="w-full" size="lg">
               Continue with Auth0
-            </button>
+            </Button>
           </form>
         ) : bypass ? (
-          <div className="space-y-3 text-sm text-muted">
+          <div className="space-y-4 text-sm text-muted">
             <p>
               Development bypass is enabled (`AUTH_DEV_BYPASS`). Open the app
               directly — no IdP login required.
             </p>
             <Link
               href={returnTo}
-              className="inline-flex w-full items-center justify-center rounded-md border border-border px-4 py-2.5 text-sm font-medium text-foreground"
+              className="inline-flex h-10 w-full items-center justify-center rounded-[6px] border border-border bg-surface text-sm font-medium text-foreground shadow-sm transition-colors hover:bg-surface-elevated focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
             >
               Continue to app
             </Link>
@@ -86,7 +90,10 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
               Set Auth0 credentials and `AUTH_SECRET`, or enable
               `AUTH_DEV_BYPASS=true` in development only.
             </p>
-            <Link href="/unauthorized?reason=misconfigured" className="text-accent">
+            <Link
+              href="/unauthorized?reason=misconfigured"
+              className="font-medium text-accent hover:underline"
+            >
               Details
             </Link>
           </div>

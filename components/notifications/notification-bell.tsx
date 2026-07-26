@@ -30,7 +30,7 @@ export function NotificationBell() {
   return (
     <Link
       href="/notifications"
-      className="relative flex h-9 w-9 items-center justify-center rounded-md border border-border bg-surface text-muted hover:text-foreground"
+      className="relative flex h-9 w-9 items-center justify-center rounded-[6px] border border-border bg-surface text-muted shadow-sm transition-colors hover:bg-surface-elevated hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
       aria-label={
         badge != null
           ? `Notifications, ${badge} unread`

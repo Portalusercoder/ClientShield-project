@@ -2,24 +2,28 @@ import type { FindingSeverity } from "@prisma/client";
 import { cn } from "@/lib/utils";
 
 const SEVERITY_STYLES: Record<FindingSeverity, string> = {
-  CRITICAL: "bg-severity-critical/15 text-severity-critical border-severity-critical/30",
-  HIGH: "bg-severity-high/15 text-severity-high border-severity-high/30",
-  MEDIUM: "bg-severity-medium/15 text-severity-medium border-severity-medium/30",
-  LOW: "bg-severity-low/15 text-severity-low border-severity-low/30",
-  INFO: "bg-severity-info/15 text-severity-info border-severity-info/30",
+  CRITICAL:
+    "bg-red-50 text-red-700 border-red-200",
+  HIGH: "bg-orange-50 text-orange-700 border-orange-200",
+  MEDIUM: "bg-amber-50 text-amber-800 border-amber-200",
+  LOW: "bg-blue-50 text-blue-700 border-blue-200",
+  INFO: "bg-gray-50 text-gray-600 border-gray-200",
 };
 
 interface SeverityBadgeProps {
-  severity: FindingSeverity;
+  severity: FindingSeverity | string;
   className?: string;
 }
 
 export function SeverityBadge({ severity, className }: SeverityBadgeProps) {
+  const key = String(severity).toUpperCase() as FindingSeverity;
+  const styles = SEVERITY_STYLES[key] ?? SEVERITY_STYLES.INFO;
+
   return (
     <span
       className={cn(
-        "inline-flex items-center rounded border px-2 py-0.5 text-xs font-medium uppercase tracking-wide",
-        SEVERITY_STYLES[severity],
+        "inline-flex items-center rounded-[4px] border px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide",
+        styles,
         className
       )}
     >
@@ -42,7 +46,13 @@ export function ScoreBadge({ score, className }: ScoreBadgeProps) {
         : "text-danger";
 
   return (
-    <span className={cn("text-sm font-semibold tabular-nums", color, className)}>
+    <span
+      className={cn(
+        "text-sm font-semibold tabular-nums",
+        color,
+        className
+      )}
+    >
       {score}
     </span>
   );

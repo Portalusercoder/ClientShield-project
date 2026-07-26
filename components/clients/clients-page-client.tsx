@@ -7,6 +7,7 @@ import { ClientFormModal } from "@/components/clients/client-form-modal";
 import { ClientTable } from "@/components/clients/client-table";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
+import { PageHeader } from "@/components/ui/page-header";
 import type { ClientListResult } from "@/types/client";
 
 interface ClientsPageClientProps {
@@ -40,16 +41,15 @@ export function ClientsPageClient({
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <p className="text-sm text-muted">
-            {data.total} client{data.total !== 1 ? "s" : ""} registered
-          </p>
-        </div>
-        {canCreate && (
-          <Button onClick={() => setAddOpen(true)}>Add Client</Button>
-        )}
-      </div>
+      <PageHeader
+        title="Clients"
+        description={`${data.total} client${data.total !== 1 ? "s" : ""} in the estate — onboard, monitor, and manage posture.`}
+        actions={
+          canCreate ? (
+            <Button onClick={() => setAddOpen(true)}>Add Client</Button>
+          ) : undefined
+        }
+      />
 
       <ClientFilters
         industries={data.industries}

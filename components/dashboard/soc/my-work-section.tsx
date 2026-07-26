@@ -1,6 +1,7 @@
 import Link from "next/link";
-import { StatCard } from "@/components/dashboard/stat-card";
 import { SeverityBadge } from "@/components/ui/badge";
+import { SectionHeader } from "@/components/ui/section-header";
+import { StatCard } from "@/components/dashboard/stat-card";
 import { formatAgeMs } from "@/services/dashboard/dashboard-aggregates";
 import type { MyWorkCard } from "@/types/soc-dashboard";
 
@@ -16,21 +17,20 @@ function severityVariant(
 export function MyWorkSection({ cards }: { cards: MyWorkCard[] }) {
   return (
     <section className="space-y-3">
-      <div>
-        <h2 className="text-lg font-semibold text-foreground">My Work</h2>
-        <p className="text-sm text-muted">
-          Items assigned or claimed to you across the SOC workflow.
-        </p>
-      </div>
+      <SectionHeader
+        title="My queue"
+        description="Work assigned or claimed to you — pick the oldest or highest severity first."
+        action={{ label: "Open Attention", href: "/attention" }}
+      />
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         {cards.map((card) => (
           <Link
             key={card.key}
             href={card.href}
-            className="block rounded-lg outline-none transition hover:opacity-95 focus-visible:ring-2 focus-visible:ring-accent"
+            className="block rounded-[8px] outline-none transition hover:opacity-95 focus-visible:ring-2 focus-visible:ring-accent"
           >
             <div
-              className={`rounded-lg border bg-surface px-5 py-4 ${
+              className={`rounded-[8px] border bg-surface px-5 py-4 shadow-card ${
                 severityVariant(card.highestSeverity) === "critical"
                   ? "border-severity-critical/40"
                   : severityVariant(card.highestSeverity) === "high"
@@ -38,7 +38,7 @@ export function MyWorkSection({ cards }: { cards: MyWorkCard[] }) {
                     : "border-border"
               }`}
             >
-              <p className="text-xs font-medium uppercase tracking-wider text-muted">
+              <p className="text-[11px] font-medium uppercase tracking-wider text-muted">
                 {card.label}
               </p>
               <p className="mt-2 text-2xl font-semibold tabular-nums text-foreground">
@@ -53,7 +53,7 @@ export function MyWorkSection({ cards }: { cards: MyWorkCard[] }) {
                 <span>·</span>
                 <span>Oldest {formatAgeMs(card.oldestAgeMs)}</span>
               </div>
-              <p className="mt-2 text-xs font-medium text-accent">View →</p>
+              <p className="mt-2 text-xs font-medium text-accent">Continue →</p>
             </div>
           </Link>
         ))}
@@ -79,24 +79,20 @@ export function OverviewMetricGrid({
   return (
     <section className="space-y-3">
       <div>
-        <h2 className="text-lg font-semibold text-foreground">{title}</h2>
+        <h3 className="text-sm font-semibold text-foreground">{title}</h3>
         {description ? (
-          <p className="text-sm text-muted">{description}</p>
+          <p className="text-xs text-muted">{description}</p>
         ) : null}
       </div>
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-3 sm:grid-cols-2">
         {metrics.map((m) =>
           m.href ? (
             <Link
               key={m.label}
               href={m.href}
-              className="block rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-accent"
+              className="block rounded-[8px] outline-none focus-visible:ring-2 focus-visible:ring-accent"
             >
-              <StatCard
-                label={m.label}
-                value={m.value}
-                variant={m.variant}
-              />
+              <StatCard label={m.label} value={m.value} variant={m.variant} />
             </Link>
           ) : (
             <StatCard

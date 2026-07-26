@@ -1,3 +1,5 @@
+"use client";
+
 import Link from "next/link";
 import { StatCard } from "@/components/dashboard/stat-card";
 import { DistributionBars } from "@/components/analytics/distribution-bars";
@@ -11,7 +13,23 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { DashboardCustomize } from "@/components/ui/dashboard-customize";
 import { EmptyState } from "@/components/ui/empty-state";
+import { PageHeader } from "@/components/ui/page-header";
+import { SectionHeader } from "@/components/ui/section-header";
+import {
+  Table,
+  TBody,
+  Td,
+  Th,
+  THead,
+  Tr,
+} from "@/components/ui/table";
+import { Button } from "@/components/ui/button";
+import {
+  useDashboardLayout,
+  type DashboardSectionDef,
+} from "@/hooks/use-dashboard-layout";
 import {
   formatDurationMs,
   formatPct,
@@ -20,6 +38,53 @@ import type {
   AnalyticsRangeDays,
   SecurityAnalyticsData,
 } from "@/types/analytics";
+
+const ANALYTICS_SECTIONS = [
+  {
+    id: "responseSpeed",
+    label: "Response speed (MTTD / MTTA / MTTR)",
+    defaultVisible: true,
+  },
+  {
+    id: "sla",
+    label: "SLA performance",
+    defaultVisible: true,
+  },
+  {
+    id: "incidents",
+    label: "Incident throughput",
+    defaultVisible: true,
+  },
+  {
+    id: "investigations",
+    label: "Investigation throughput",
+    defaultVisible: false,
+  },
+  {
+    id: "findings",
+    label: "Findings remediation",
+    defaultVisible: false,
+  },
+  {
+    id: "securityEvents",
+    label: "Detection conversion",
+    defaultVisible: false,
+  },
+  {
+    id: "risk",
+    label: "Risk & posture",
+    defaultVisible: true,
+  },
+  {
+    id: "analysts",
+    label: "Analyst performance",
+    defaultVisible: false,
+  },
+] as const satisfies readonly DashboardSectionDef<string>[];
+
+type AnalyticsSectionId = (typeof ANALYTICS_SECTIONS)[number]["id"];
+
+const STORAGE_KEY = "cs-analytics-layout-v1";
 
 function TrendCard({
   title,
@@ -51,7 +116,7 @@ function TrendCard({
 function RangeSelector({ current }: { current: AnalyticsRangeDays }) {
   const options: AnalyticsRangeDays[] = [7, 30, 90];
   return (
-    <div className="flex flex-wrap gap-2">
+    <div className="flex flex-wrap gap-2" role="group" aria-label="Date range">
       {options.map((days) => {
         const active = days === current;
         return (
@@ -60,9 +125,10 @@ function RangeSelector({ current }: { current: AnalyticsRangeDays }) {
             href={`/analytics?range=${days}`}
             className={
               active
-                ? "rounded-md border border-accent bg-accent/10 px-3 py-1.5 text-sm font-medium text-accent"
-                : "rounded-md border border-border bg-surface px-3 py-1.5 text-sm text-muted hover:text-foreground"
+                ? "inline-flex h-9 items-center rounded-[6px] border border-accent bg-accent-muted px-3 text-sm font-medium text-accent"
+                : "inline-flex h-9 items-center rounded-[6px] border border-border bg-surface px-3 text-sm font-medium text-muted shadow-sm hover:bg-surface-elevated hover:text-foreground"
             }
+            aria-current={active ? "true" : undefined}
           >
             {days} days
           </Link>
@@ -75,24 +141,56 @@ function RangeSelector({ current }: { current: AnalyticsRangeDays }) {
 export function AnalyticsDashboard({ data }: { data: SecurityAnalyticsData }) {
   const { kpis, incidents, investigations, findings, securityEvents, sla, risk, analysts } =
     data;
+  const layout = useDashboardLayout<AnalyticsSectionId>(
+    STORAGE_KEY,
+    ANALYTICS_SECTIONS
+  );
+  const { isVisible } = layout;
 
   return (
-    <div className="space-y-8">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold text-foreground">
-            Security Analytics
-          </h1>
-          <p className="mt-1 text-sm text-muted">
-            On-demand historical insights for MTTD/MTTA/MTTR, SOC throughput,
-            posture, and client risk — computed from live domain timestamps.
-          </p>
-        </div>
-        <RangeSelector current={data.rangeDays} />
-      </div>
+    <div className="space-y-10">
+      <PageHeader
+        title="Analytics"
+        description="Are detection and response getting faster — and is SLA holding — over the selected range? Customize to keep only the sections you need."
+        actions={
+          <div className="flex flex-wrap items-center gap-2">
+            <DashboardCustomize
+              title="Customize Analytics"
+              sections={ANALYTICS_SECTIONS}
+              isVisible={layout.isVisible}
+              setSection={layout.setSection}
+              setAll={layout.setAll}
+              reset={layout.reset}
+              hiddenCount={layout.hiddenCount}
+            />
+            <RangeSelector current={data.rangeDays} />
+          </div>
+        }
+      />
 
+      {layout.hiddenCount > 0 ? (
+        <p className="rounded-[8px] border border-border bg-surface-elevated/60 px-4 py-2.5 text-sm text-muted">
+          {layout.hiddenCount} section
+          {layout.hiddenCount !== 1 ? "s are" : " is"} hidden. Use{" "}
+          <span className="font-medium text-foreground">Customize</span> to add
+          them back, or{" "}
+          <button
+            type="button"
+            className="font-medium text-accent hover:underline"
+            onClick={() => layout.setAll(true)}
+          >
+            show all
+          </button>
+          .
+        </p>
+      ) : null}
+
+      {isVisible("responseSpeed") ? (
       <section className="space-y-3">
-        <h2 className="text-lg font-medium text-foreground">Security KPIs</h2>
+        <SectionHeader
+          title="Response speed"
+          description="Primary performance question for this range: MTTD, MTTA, and MTTR."
+        />
         <div className="grid gap-4 lg:grid-cols-3">
           <KpiTrendCard
             title="Mean Time To Detect"
@@ -111,9 +209,67 @@ export function AnalyticsDashboard({ data }: { data: SecurityAnalyticsData }) {
           />
         </div>
       </section>
+      ) : null}
 
+      {isVisible("sla") ? (
       <section className="space-y-3">
-        <h2 className="text-lg font-medium text-foreground">Incidents</h2>
+        <SectionHeader
+          title="SLA performance"
+          description="Compliance and breach pressure for open and resolved cases."
+        />
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <StatCard
+            label="Compliance (open)"
+            value={formatPct(sla.currentCompliancePct)}
+            variant="success"
+          />
+          <StatCard
+            label="Breached open"
+            value={sla.breachedOpen}
+            variant="critical"
+          />
+          <StatCard
+            label="At risk open"
+            value={sla.atRiskOpen}
+            variant="warning"
+          />
+          <StatCard
+            label="Resolved before breach"
+            value={formatPct(sla.resolutionBeforeBreachPct)}
+          />
+        </div>
+        <div className="grid gap-3 sm:grid-cols-3">
+          <StatCard
+            label="Avg response"
+            value={formatDurationMs(sla.averageResponseTimeMs)}
+          />
+          <StatCard
+            label="Avg resolution"
+            value={formatDurationMs(sla.averageResolutionTimeMs)}
+          />
+          <StatCard label="Escalation events" value={sla.escalationFrequency} />
+        </div>
+        <div className="grid gap-4 lg:grid-cols-2">
+          <TrendCard
+            title="Compliance trend (% met)"
+            points={sla.complianceTrend}
+            tone="success"
+          />
+          <TrendCard
+            title="Breach escalations"
+            points={sla.breachTrend}
+            tone="danger"
+          />
+        </div>
+      </section>
+      ) : null}
+
+      {isVisible("incidents") ? (
+      <section className="space-y-3">
+        <SectionHeader
+          title="Incident throughput"
+          description="Creation vs resolution volume for the selected window."
+        />
         <div className="grid gap-3 sm:grid-cols-3">
           <StatCard label="Created" value={incidents.totals.created} />
           <StatCard label="Resolved" value={incidents.totals.resolved} />
@@ -191,9 +347,14 @@ export function AnalyticsDashboard({ data }: { data: SecurityAnalyticsData }) {
           </Card>
         </div>
       </section>
+      ) : null}
 
+      {isVisible("investigations") ? (
       <section className="space-y-3">
-        <h2 className="text-lg font-medium text-foreground">Investigations</h2>
+        <SectionHeader
+          title="Investigation throughput"
+          description="Start/complete rates and backlog pressure."
+        />
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <StatCard label="Started" value={investigations.started} />
           <StatCard label="Completed" value={investigations.completed} />
@@ -238,9 +399,14 @@ export function AnalyticsDashboard({ data }: { data: SecurityAnalyticsData }) {
           </Card>
         </div>
       </section>
+      ) : null}
 
+      {isVisible("findings") ? (
       <section className="space-y-3">
-        <h2 className="text-lg font-medium text-foreground">Findings</h2>
+        <SectionHeader
+          title="Findings remediation"
+          description="New vs resolved findings and aging debt."
+        />
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <StatCard label="New" value={findings.newFindings} />
           <StatCard label="Resolved" value={findings.resolvedFindings} />
@@ -312,9 +478,14 @@ export function AnalyticsDashboard({ data }: { data: SecurityAnalyticsData }) {
           </Card>
         </div>
       </section>
+      ) : null}
 
+      {isVisible("securityEvents") ? (
       <section className="space-y-3">
-        <h2 className="text-lg font-medium text-foreground">Security events</h2>
+        <SectionHeader
+          title="Detection conversion"
+          description="Ingested events and escalation into investigations."
+        />
         <div className="grid gap-3 sm:grid-cols-3">
           <StatCard label="Ingested" value={securityEvents.ingested} />
           <StatCard
@@ -360,53 +531,14 @@ export function AnalyticsDashboard({ data }: { data: SecurityAnalyticsData }) {
           </CardContent>
         </Card>
       </section>
+      ) : null}
 
+      {isVisible("risk") ? (
       <section className="space-y-3">
-        <h2 className="text-lg font-medium text-foreground">SLA</h2>
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          <StatCard
-            label="Compliance (open)"
-            value={formatPct(sla.currentCompliancePct)}
-            variant="success"
-          />
-          <StatCard
-            label="Breached open"
-            value={sla.breachedOpen}
-            variant="critical"
-          />
-          <StatCard label="At risk open" value={sla.atRiskOpen} variant="warning" />
-          <StatCard
-            label="Resolved before breach"
-            value={formatPct(sla.resolutionBeforeBreachPct)}
-          />
-        </div>
-        <div className="grid gap-3 sm:grid-cols-3">
-          <StatCard
-            label="Avg response"
-            value={formatDurationMs(sla.averageResponseTimeMs)}
-          />
-          <StatCard
-            label="Avg resolution"
-            value={formatDurationMs(sla.averageResolutionTimeMs)}
-          />
-          <StatCard label="Escalation events" value={sla.escalationFrequency} />
-        </div>
-        <div className="grid gap-4 lg:grid-cols-2">
-          <TrendCard
-            title="Compliance trend (% met)"
-            points={sla.complianceTrend}
-            tone="success"
-          />
-          <TrendCard
-            title="Breach escalations"
-            points={sla.breachTrend}
-            tone="danger"
-          />
-        </div>
-      </section>
-
-      <section className="space-y-3">
-        <h2 className="text-lg font-medium text-foreground">Risk & posture</h2>
+        <SectionHeader
+          title="Risk & posture"
+          description="Score trends and highest-risk clients and assets."
+        />
         <div className="grid gap-4 lg:grid-cols-2">
           <TrendCard
             title="Security posture trend"
@@ -493,64 +625,75 @@ export function AnalyticsDashboard({ data }: { data: SecurityAnalyticsData }) {
           </Card>
         </div>
       </section>
+      ) : null}
 
+      {isVisible("analysts") ? (
       <section className="space-y-3">
-        <h2 className="text-lg font-medium text-foreground">
-          Analyst performance
-        </h2>
+        <SectionHeader
+          title="Analyst performance"
+          description="Workload and completion rates — last section for coaching context."
+          tone="secondary"
+        />
         {analysts.leaderboard.length === 0 ? (
           <EmptyState
             title="No analysts"
             description="Active OWNER/ADMIN/ANALYST users will appear here."
           />
         ) : (
-          <div className="overflow-x-auto rounded-lg border border-border">
-            <table className="w-full min-w-[720px] text-left text-sm">
-              <thead>
-                <tr className="border-b border-border bg-surface-elevated text-xs uppercase tracking-wider text-muted">
-                  <th className="px-3 py-2 font-medium">Analyst</th>
-                  <th className="px-3 py-2 font-medium">Open</th>
-                  <th className="px-3 py-2 font-medium">Inv done</th>
-                  <th className="px-3 py-2 font-medium">Inc done</th>
-                  <th className="px-3 py-2 font-medium">Avg resolve</th>
-                  <th className="px-3 py-2 font-medium">Avg inv</th>
-                  <th className="px-3 py-2 font-medium">SLA %</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border">
-                {analysts.leaderboard.map((row) => (
-                  <tr key={row.userId} className="bg-surface">
-                    <td className="px-3 py-2 font-medium text-foreground">
-                      {row.name}
-                    </td>
-                    <td className="px-3 py-2 tabular-nums">{row.openWorkload}</td>
-                    <td className="px-3 py-2 tabular-nums">
-                      {row.completedInvestigations}
-                    </td>
-                    <td className="px-3 py-2 tabular-nums">
-                      {row.completedIncidents}
-                    </td>
-                    <td className="px-3 py-2 tabular-nums text-muted">
-                      {formatDurationMs(row.averageResolutionTimeMs)}
-                    </td>
-                    <td className="px-3 py-2 tabular-nums text-muted">
-                      {formatDurationMs(row.averageInvestigationDurationMs)}
-                    </td>
-                    <td className="px-3 py-2 tabular-nums">
-                      {formatPct(row.slaCompliancePct)}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <Table>
+            <THead>
+              <Tr>
+                <Th>Analyst</Th>
+                <Th>Open</Th>
+                <Th>Inv done</Th>
+                <Th>Inc done</Th>
+                <Th>Avg resolve</Th>
+                <Th>Avg inv</Th>
+                <Th>SLA %</Th>
+              </Tr>
+            </THead>
+            <TBody>
+              {analysts.leaderboard.map((row) => (
+                <Tr key={row.userId}>
+                  <Td className="font-medium">{row.name}</Td>
+                  <Td className="tabular-nums">{row.openWorkload}</Td>
+                  <Td className="tabular-nums">
+                    {row.completedInvestigations}
+                  </Td>
+                  <Td className="tabular-nums">{row.completedIncidents}</Td>
+                  <Td className="tabular-nums text-muted">
+                    {formatDurationMs(row.averageResolutionTimeMs)}
+                  </Td>
+                  <Td className="tabular-nums text-muted">
+                    {formatDurationMs(row.averageInvestigationDurationMs)}
+                  </Td>
+                  <Td className="tabular-nums">
+                    {formatPct(row.slaCompliancePct)}
+                  </Td>
+                </Tr>
+              ))}
+            </TBody>
+          </Table>
         )}
       </section>
+      ) : null}
 
-      <p className="text-xs text-muted">
-        Generated {new Date(data.generatedAt).toLocaleString()} · Range{" "}
-        {data.rangeDays}d · On-demand (not cached)
-      </p>
+      <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border pt-4">
+        <p className="text-xs text-muted">
+          Generated {new Date(data.generatedAt).toLocaleString()} · Range{" "}
+          {data.rangeDays}d · On-demand (not cached)
+        </p>
+        {layout.hiddenCount > 0 ? (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={() => layout.setAll(true)}
+          >
+            Show all sections
+          </Button>
+        ) : null}
+      </div>
     </div>
   );
 }

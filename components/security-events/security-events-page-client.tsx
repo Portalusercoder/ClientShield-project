@@ -2,7 +2,8 @@
 
 import { SecurityEventsFilters } from "@/components/security-events/security-events-filters";
 import { SecurityEventsTable } from "@/components/security-events/security-events-table";
-import { formatNumber } from "@/lib/utils";
+import { PageHeader } from "@/components/ui/page-header";
+import { SummaryStrip } from "@/components/ui/summary-strip";
 import type { SecurityEventListResult } from "@/types/security-events";
 
 interface SecurityEventsPageClientProps {
@@ -66,41 +67,12 @@ export function SecurityEventsPageClient({
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold text-foreground">
-          Security Events
-        </h1>
-        <p className="mt-1 text-sm text-muted">
-          Investigation workspace for correlated Wazuh detections. One row per
-          correlated event — use filters to focus analyst attention.
-        </p>
-        <p className="mt-2 text-xs text-muted">
-          Classification:{" "}
-          <span className="text-foreground">Actionable</span> requires attention
-          · <span className="text-foreground">Informational</span> is useful
-          context · <span className="text-foreground">Noisy</span> is
-          low-value ingested signal ·{" "}
-          <span className="text-foreground">Ignored</span> is policy-denied.
-          Filtered indexer alerts (below min level) remain ledgered but do not
-          create events.
-        </p>
-      </div>
+      <PageHeader
+        title="Security Events"
+        description="Triage correlated detections first — Actionable needs attention; Informational is context; Noisy/Ignored are low-value or policy-denied."
+      />
 
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
-        {cards.map((card) => (
-          <div
-            key={card.label}
-            className="rounded-lg border border-border bg-surface p-4"
-          >
-            <p className="text-xs uppercase tracking-wide text-muted">
-              {card.label}
-            </p>
-            <p className={`mt-1 text-2xl font-semibold ${card.tone}`}>
-              {formatNumber(card.value)}
-            </p>
-          </div>
-        ))}
-      </div>
+      <SummaryStrip columns={5} metrics={cards} />
 
       <SecurityEventsFilters
         data={data}

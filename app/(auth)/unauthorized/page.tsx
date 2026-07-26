@@ -50,14 +50,22 @@ export default async function UnauthorizedPage({
 
   return (
     <main className="flex min-h-screen flex-col items-center justify-center bg-background px-4">
-      <div className="w-full max-w-md space-y-4 border border-border bg-surface p-8 text-center">
-        <h1 className="text-xl font-semibold text-foreground">{copy.title}</h1>
-        <p className="text-sm text-muted">{copy.body}</p>
+      <div className="w-full max-w-md space-y-4 rounded-[10px] border border-border bg-surface p-8 text-center shadow-card">
+        <h1 className="text-xl font-semibold tracking-tight text-foreground">
+          {copy.title}
+        </h1>
+        <p className="text-sm leading-relaxed text-muted">{copy.body}</p>
         <div className="flex justify-center gap-4 pt-2 text-sm">
-          <Link href="/login" className="text-accent">
+          <Link
+            href="/login"
+            className="font-medium text-accent hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent rounded"
+          >
             Sign in
           </Link>
-          <Link href="/" className="text-muted hover:text-foreground">
+          <Link
+            href="/"
+            className="text-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent rounded"
+          >
             Home
           </Link>
         </div>

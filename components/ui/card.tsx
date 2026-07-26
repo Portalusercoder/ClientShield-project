@@ -9,7 +9,7 @@ export function Card({ children, className }: CardProps) {
   return (
     <div
       className={cn(
-        "rounded-lg border border-border bg-surface",
+        "rounded-[8px] border border-border bg-surface shadow-card",
         className
       )}
     >
@@ -40,7 +40,12 @@ export function CardTitle({
   className?: string;
 }) {
   return (
-    <h3 className={cn("text-sm font-semibold text-foreground", className)}>
+    <h3
+      className={cn(
+        "text-sm font-semibold tracking-tight text-foreground",
+        className
+      )}
+    >
       {children}
     </h3>
   );
@@ -54,7 +59,9 @@ export function CardDescription({
   className?: string;
 }) {
   return (
-    <p className={cn("mt-1 text-xs text-muted", className)}>{children}</p>
+    <p className={cn("mt-1 text-sm leading-relaxed text-muted", className)}>
+      {children}
+    </p>
   );
 }
 
@@ -65,5 +72,5 @@ export function CardContent({
   children: React.ReactNode;
   className?: string;
 }) {
-  return <div className={cn("px-5 py-4", className)}>{children}</div>;
+  return <div className={cn("px-5 py-5", className)}>{children}</div>;
 }

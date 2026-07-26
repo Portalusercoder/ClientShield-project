@@ -17,6 +17,7 @@ import {
 } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Input } from "@/components/ui/input";
+import { PageHeader } from "@/components/ui/page-header";
 import { Select } from "@/components/ui/select";
 import { formatDate } from "@/lib/utils";
 import type { ReportListItem } from "@/services/reports/report.service";
@@ -87,21 +88,15 @@ export function ReportsPageClient({
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold text-foreground">
-            Security Reports
-          </h1>
-          <p className="mt-1 text-sm text-muted">
-            Generate immutable, client-facing security posture reports from
-            assessed findings and analyst triage. Reports are snapshots — they
-            do not change when live data updates.
-          </p>
-        </div>
-        {canGenerate && (
-          <Button onClick={() => setModalOpen(true)}>Generate Report</Button>
-        )}
-      </div>
+      <PageHeader
+        title="Security Reports"
+        description="Generate immutable, client-facing security posture reports from assessed findings and analyst triage. Reports are snapshots — they do not change when live data updates."
+        actions={
+          canGenerate ? (
+            <Button onClick={() => setModalOpen(true)}>Generate Report</Button>
+          ) : undefined
+        }
+      />
 
       <div className="grid gap-3 sm:grid-cols-3">
         <Select

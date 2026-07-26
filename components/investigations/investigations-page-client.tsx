@@ -12,7 +12,8 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { formatNumber } from "@/lib/utils";
+import { PageHeader } from "@/components/ui/page-header";
+import { SummaryStrip } from "@/components/ui/summary-strip";
 import type {
   InvestigationListItem,
   InvestigationMetrics,
@@ -81,22 +82,17 @@ export function InvestigationsPageClient({
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold text-foreground">
-            Investigations
-          </h1>
-          <p className="mt-1 text-sm text-muted">
-            Group related security events, review correlation suggestions, and
-            escalate to incidents when confirmed.
-          </p>
-        </div>
-        {canCreate && (
-          <Button onClick={() => setShowCreate((v) => !v)}>
-            {showCreate ? "Hide form" : "Create Investigation"}
-          </Button>
-        )}
-      </div>
+      <PageHeader
+        title="Investigations"
+        description="Group related events, confirm correlations, then escalate to incidents when needed."
+        actions={
+          canCreate ? (
+            <Button onClick={() => setShowCreate((v) => !v)}>
+              {showCreate ? "Hide form" : "Create Investigation"}
+            </Button>
+          ) : undefined
+        }
+      />
 
       {showCreate && canCreate && (
         <Card>
@@ -191,18 +187,7 @@ export function InvestigationsPageClient({
         </Card>
       )}
 
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6">
-        {cards.map((card) => (
-          <Card key={card.label}>
-            <CardHeader className="pb-2">
-              <CardDescription>{card.label}</CardDescription>
-              <CardTitle className={`text-2xl tabular-nums ${card.tone}`}>
-                {formatNumber(card.value)}
-              </CardTitle>
-            </CardHeader>
-          </Card>
-        ))}
-      </div>
+      <SummaryStrip metrics={cards} />
 
       <InvestigationsFilters
         currentStatus={currentStatus}
