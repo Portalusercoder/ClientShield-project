@@ -18,6 +18,12 @@ import {
   unlinkSecurityEventFromIncident,
 } from "@/services/security-events.service";
 import {
+  acceptInvestigationSuggestionForSecurityEvent,
+  createInvestigationFromSecurityEvent,
+  dismissInvestigationSuggestionForSecurityEvent,
+  linkSecurityEventToInvestigation,
+} from "@/services/investigations/se-investigation-handoff.service";
+import {
   removeWazuhAgentMapping,
   upsertWazuhAgentMapping,
 } from "@/services/wazuh/wazuh-agent.service";
@@ -58,15 +64,122 @@ async function runPostIngestionHooksSafely(
 
 function revalidateSecurityEventPaths(
   eventId: string,
-  extra?: { clientId?: string | null; assetId?: string | null; incidentId?: string }
+  extra?: { clientId?: string | null; assetId?: string | null; incidentId?: string; investigationId?: string }
 ) {
   revalidatePath("/security-events");
   revalidatePath(`/security-events/${eventId}`);
   revalidatePath("/");
   revalidatePath("/integrations/wazuh");
+  revalidatePath("/investigations");
+  revalidatePath("/attention");
   if (extra?.clientId) revalidatePath(`/clients/${extra.clientId}`);
   if (extra?.assetId) revalidatePath(`/assets/${extra.assetId}`);
   if (extra?.incidentId) revalidatePath(`/incidents/${extra.incidentId}`);
+  if (extra?.investigationId) {
+    revalidatePath(`/investigations/${extra.investigationId}`);
+  }
+}
+
+export async function createInvestigationFromSecurityEventAction(input: {
+  securityEventId: string;
+  title?: string;
+  severity?: "CRITICAL" | "HIGH" | "MEDIUM" | "LOW" | "INFO";
+  inheritOwner?: boolean;
+}): Promise<ActionResult<{ investigationId: string }>> {
+  try {
+    const session = await requireSession();
+    assertMinimumRole(session, "ANALYST");
+    if (!input.securityEventId?.trim()) {
+      return { success: false, error: "Security event is required" };
+    }
+    const result = await createInvestigationFromSecurityEvent({
+      organizationId: session.organizationId,
+      actorId: session.userId,
+      securityEventId: input.securityEventId,
+      title: input.title,
+      severity: input.severity,
+      inheritOwner: Boolean(input.inheritOwner),
+    });
+    revalidateSecurityEventPaths(input.securityEventId, {
+      investigationId: result.investigationId,
+    });
+    return { success: true, data: result };
+  } catch (error) {
+    return toActionError(error);
+  }
+}
+
+export async function linkSecurityEventToInvestigationAction(input: {
+  securityEventId: string;
+  investigationId: string;
+  reason?: string;
+}): Promise<ActionResult<{ investigationId: string }>> {
+  try {
+    const session = await requireSession();
+    assertMinimumRole(session, "ANALYST");
+    if (!input.securityEventId?.trim() || !input.investigationId?.trim()) {
+      return { success: false, error: "Security event and investigation are required" };
+    }
+    const result = await linkSecurityEventToInvestigation({
+      organizationId: session.organizationId,
+      actorId: session.userId,
+      securityEventId: input.securityEventId,
+      investigationId: input.investigationId,
+      reason: input.reason,
+    });
+    revalidateSecurityEventPaths(input.securityEventId, {
+      investigationId: result.investigationId,
+    });
+    return { success: true, data: result };
+  } catch (error) {
+    return toActionError(error);
+  }
+}
+
+export async function acceptSeInvestigationSuggestionAction(input: {
+  securityEventId: string;
+  candidateId: string;
+}): Promise<ActionResult<{ investigationId: string }>> {
+  try {
+    const session = await requireSession();
+    assertMinimumRole(session, "ANALYST");
+    const result = await acceptInvestigationSuggestionForSecurityEvent({
+      organizationId: session.organizationId,
+      actorId: session.userId,
+      securityEventId: input.securityEventId,
+      candidateId: input.candidateId,
+    });
+    revalidateSecurityEventPaths(input.securityEventId, {
+      investigationId: result.investigationId,
+    });
+    revalidatePath("/investigations/candidates");
+    return { success: true, data: result };
+  } catch (error) {
+    return toActionError(error);
+  }
+}
+
+export async function dismissSeInvestigationSuggestionAction(input: {
+  securityEventId: string;
+  candidateId: string;
+  reason?: string;
+}): Promise<ActionResult<void>> {
+  try {
+    const session = await requireSession();
+    assertMinimumRole(session, "ANALYST");
+    await dismissInvestigationSuggestionForSecurityEvent({
+      organizationId: session.organizationId,
+      actorId: session.userId,
+      securityEventId: input.securityEventId,
+      candidateId: input.candidateId,
+      reason: input.reason,
+    });
+    revalidateSecurityEventPaths(input.securityEventId);
+    revalidatePath("/investigations/candidates");
+    return { success: true };
+  } catch (error) {
+    return toActionError(error);
+  }
 }
 
 export async function startSecurityEventReviewAction(

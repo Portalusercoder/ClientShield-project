@@ -396,6 +396,22 @@ export async function createInvestigation(input: {
 
   const assetId = events.find((e) => e.assetId)?.assetId ?? null;
 
+  let assignedToUserId: string | null = null;
+  if (input.data.assignedToUserId) {
+    const assignee = await prisma.user.findFirst({
+      where: {
+        id: input.data.assignedToUserId,
+        organizationId: input.organizationId,
+        disabledAt: null,
+      },
+      select: { id: true },
+    });
+    if (!assignee) {
+      throw new Error("Assignee not found in organization");
+    }
+    assignedToUserId = assignee.id;
+  }
+
   const group = await prisma.investigationGroup.create({
     data: {
       organizationId: input.organizationId,
@@ -407,6 +423,7 @@ export async function createInvestigation(input: {
       status: "OPEN",
       createdByType: "ANALYST_CREATED",
       createdByUserId: input.actorId,
+      assignedToUserId,
       groupingExplanation:
         input.data.groupingExplanation?.slice(0, 5000) ??
         "Analyst-created investigation group.",
@@ -428,7 +445,10 @@ export async function createInvestigation(input: {
     actorUserId: input.actorId,
     activityType: "CREATED",
     message: `Investigation created with ${events.length} event(s)`,
-    metadata: { securityEventIds: eventIds },
+    metadata: {
+      securityEventIds: eventIds,
+      assignedToUserId,
+    },
   });
 
   await createAuditLog({
@@ -437,7 +457,11 @@ export async function createInvestigation(input: {
     action: "INVESTIGATION_CREATED",
     resourceType: "InvestigationGroup",
     resourceId: group.id,
-    metadata: { eventCount: events.length },
+    metadata: {
+      eventCount: events.length,
+      assignedToUserId,
+      securityEventIds: eventIds,
+    },
   });
 
   return group;

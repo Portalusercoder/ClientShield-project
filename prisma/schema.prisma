@@ -298,6 +298,10 @@ enum SecurityEventActivityType {
   LINKED_TO_INCIDENT
   UNLINKED_FROM_INCIDENT
   CLASSIFICATION_CHANGED
+  INVESTIGATION_CREATED
+  INVESTIGATION_LINKED
+  INVESTIGATION_SUGGESTION_ACCEPTED
+  INVESTIGATION_SUGGESTION_DISMISSED
 }
 
 enum WazuhProcessedDisposition {
@@ -579,6 +583,7 @@ model User {
   wazuhAgentEnrollmentsCreated WazuhAgentEnrollment[] @relation("WazuhEnrollmentCreator")
   incidentSecurityEventLinks IncidentSecurityEvent[] @relation("IncidentSecurityEventLinker")
   investigationGroupsCreated InvestigationGroup[] @relation("InvestigationGroupCreator")
+  investigationGroupsAssigned InvestigationGroup[] @relation("InvestigationGroupAssignee")
   investigationActivities   InvestigationActivity[] @relation("InvestigationActivityActor")
   investigationGroupEventsAdded InvestigationGroupEvent[] @relation("InvestigationGroupEventAdder")
   threatIntelLookupsRequested ThreatIntelLookup[] @relation("ThreatIntelLookupRequester")
@@ -1593,6 +1598,8 @@ model InvestigationGroup {
   severity             IncidentSeverity            @default(MEDIUM)
   createdByType        InvestigationCreatedByType
   createdByUserId      String?
+  /// Optional analyst assignee (Attention claim inheritance on SE→Inv create).
+  assignedToUserId     String?
   /// Human-readable explanation of why events were grouped.
   groupingExplanation  String?
   /// Aggregate confidence from correlation quality model (nullable for older rows).
@@ -1613,6 +1620,7 @@ model InvestigationGroup {
 
   organization Organization                @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   createdBy    User?                       @relation("InvestigationGroupCreator", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  assignedTo   User?                       @relation("InvestigationGroupAssignee", fields: [assignedToUserId], references: [id], onDelete: SetNull)
   events       InvestigationGroupEvent[]
   incidents    InvestigationGroupIncident[]
   activities   InvestigationActivity[]
@@ -1626,6 +1634,7 @@ model InvestigationGroup {
   @@index([createdAt])
   @@index([fingerprint])
   @@index([organizationId, fingerprint])
+  @@index([assignedToUserId])
 }
 
 model InvestigationGroupEvent {

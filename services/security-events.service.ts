@@ -31,6 +31,7 @@ import type {
 import { checkWazuhIndexerHealth } from "@/services/wazuh/wazuh-indexer-client.service";
 import { checkWazuhManagerHealth } from "@/services/wazuh/wazuh-manager-client.service";
 import { recordSecurityEventActivity } from "@/services/security-events/security-event-activity.service";
+import { getSecurityEventInvestigationHandoff } from "@/services/investigations/se-investigation-handoff.service";
 
 const ACTIVE_STATUSES: SecurityEventStatus[] = [
   "NEW",
@@ -231,31 +232,33 @@ export async function getSecurityEventDetail(
   });
   if (!event) return null;
 
-  const [agentMapping, linkableIncidents] = await Promise.all([
-    event.agentId
-      ? prisma.wazuhAgentMapping.findUnique({
-          where: {
-            organizationId_wazuhAgentId: {
-              organizationId,
-              wazuhAgentId: event.agentId,
+  const [agentMapping, linkableIncidents, investigationHandoff] =
+    await Promise.all([
+      event.agentId
+        ? prisma.wazuhAgentMapping.findUnique({
+            where: {
+              organizationId_wazuhAgentId: {
+                organizationId,
+                wazuhAgentId: event.agentId,
+              },
             },
-          },
-          select: { lastKnownStatus: true },
-        })
-      : Promise.resolve(null),
-    event.clientId
-      ? prisma.incident.findMany({
-          where: {
-            organizationId,
-            clientId: event.clientId,
-            status: { notIn: ["CLOSED"] },
-          },
-          select: { id: true, title: true, status: true, severity: true },
-          orderBy: { updatedAt: "desc" },
-          take: 50,
-        })
-      : Promise.resolve([]),
-  ]);
+            select: { lastKnownStatus: true },
+          })
+        : Promise.resolve(null),
+      event.clientId
+        ? prisma.incident.findMany({
+            where: {
+              organizationId,
+              clientId: event.clientId,
+              status: { notIn: ["CLOSED"] },
+            },
+            select: { id: true, title: true, status: true, severity: true },
+            orderBy: { updatedAt: "desc" },
+            take: 50,
+          })
+        : Promise.resolve([]),
+      getSecurityEventInvestigationHandoff(organizationId, id),
+    ]);
 
   return {
     id: event.id,
@@ -330,6 +333,7 @@ export async function getSecurityEventDetail(
       status: i.status,
       severity: i.severity,
     })),
+    investigationHandoff,
     createdAt: event.createdAt,
     updatedAt: event.updatedAt,
   };

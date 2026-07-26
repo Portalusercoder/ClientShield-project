@@ -221,6 +221,8 @@ export type CreateInvestigationInput = {
   severity?: IncidentSeverity;
   securityEventIds: string[];
   groupingExplanation?: string | null;
+  /** Optional assignee (SE Attention claim inheritance). */
+  assignedToUserId?: string | null;
 };
 
 export type CorrelationCandidateView = {

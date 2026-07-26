@@ -15,6 +15,7 @@ import {
   SecurityEventSeverityBadge,
   SecurityEventStatusBadge,
 } from "@/components/security-events/security-event-badges";
+import { SecurityEventInvestigationPanel } from "@/components/security-events/security-event-investigation-panel";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -407,6 +408,14 @@ export function SecurityEventDetailView({
         </CardContent>
       </Card>
 
+      {event.investigationHandoff && (
+        <SecurityEventInvestigationPanel
+          securityEventId={event.id}
+          handoff={event.investigationHandoff}
+          canTriage={canTriage}
+        />
+      )}
+
       <Card>
         <CardHeader>
           <CardTitle>MITRE ATT&amp;CK</CardTitle>
@@ -461,7 +470,7 @@ export function SecurityEventDetailView({
         <CardHeader>
           <CardTitle>Activity Timeline</CardTitle>
           <CardDescription>
-            Append-only investigation history. Correlation noise is aggregated.
+            Append-only security event history. Correlation noise is aggregated.
           </CardDescription>
         </CardHeader>
         <CardContent>

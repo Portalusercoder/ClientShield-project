@@ -1,4 +1,6 @@
 import type {
+  IncidentSeverity,
+  InvestigationStatus,
   SecurityEventClassification,
   SecurityEventSeverity,
   SecurityEventStatus,
@@ -65,6 +67,45 @@ export interface SecurityEventLinkedIncident {
   severity: string;
 }
 
+export interface SecurityEventInvestigationLink {
+  id: string;
+  title: string;
+  status: InvestigationStatus;
+  severity: IncidentSeverity;
+  createdByType: string;
+  assignedToUserId: string | null;
+  assignedToName: string | null;
+  eventCount: number;
+  alreadyLinked: boolean;
+}
+
+export interface SecurityEventInvestigationSuggestion {
+  candidateId: string;
+  score: number;
+  confidence: string;
+  reasons: string[];
+  otherEventId: string;
+  otherEventTitle: string;
+  investigationGroupId: string | null;
+  investigationTitle: string | null;
+}
+
+export interface SecurityEventInvestigationHandoff {
+  linked: SecurityEventInvestigationLink[];
+  linkable: SecurityEventInvestigationLink[];
+  suggestions: SecurityEventInvestigationSuggestion[];
+  createDefaults: {
+    title: string;
+    severity: IncidentSeverity;
+    summary: string | null;
+  };
+  suggestedOwner: {
+    userId: string;
+    name: string;
+  } | null;
+  panelState: "NONE" | "SUGGESTED" | "LINKED" | "MULTIPLE";
+}
+
 export interface SecurityEventActivityItem {
   id: string;
   activityType: string;
@@ -128,6 +169,7 @@ export interface SecurityEventDetail {
   linkedIncidents: SecurityEventLinkedIncident[];
   activities: SecurityEventActivityItem[];
   linkableIncidents: { id: string; title: string; status: string; severity: string }[];
+  investigationHandoff: SecurityEventInvestigationHandoff | null;
   createdAt: Date;
   updatedAt: Date;
 }

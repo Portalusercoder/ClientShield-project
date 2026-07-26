@@ -39,6 +39,7 @@
     "investigations:reevaluate": "npx tsx scripts/reevaluate-investigations.ts",
     "test:wazuh-unit": "npx tsx scripts/test-wazuh-unit.ts",
     "test:wazuh-ingestion-integrity": "npx tsx scripts/test-wazuh-ingestion-integrity.ts",
+    "test:se-investigation-handoff": "npx tsx scripts/test-se-investigation-handoff.ts",
     "test:wazuh-enrollment": "npx tsx scripts/test-wazuh-enrollment.ts",
     "wazuh:worker": "npx tsx workers/wazuh-sync-worker.ts",
     "sla:escalation-worker": "npx tsx workers/sla-escalation-worker.ts",
