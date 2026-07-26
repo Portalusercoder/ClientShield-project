@@ -2,7 +2,7 @@
 
 ClientShield is a multi-tenant cybersecurity monitoring and vulnerability management platform built for companies that develop websites and provide IoT solutions.
 
-This repository contains the application foundation — secure multi-tenant workflows, Auth0 authentication, Wazuh/ZAP integrations, and a production deployment baseline (Docker, Compose, nginx). See [DEPLOYMENT.md](./DEPLOYMENT.md) and [PRODUCTION.md](./PRODUCTION.md) for first production deploy.
+This repository contains the application foundation — secure multi-tenant workflows, Auth0 authentication, Wazuh/ZAP integrations, and a production deployment baseline (Docker, Compose, nginx). See [ARCHITECTURE.md](./ARCHITECTURE.md) and [CONTRIBUTING.md](./CONTRIBUTING.md) for module boundaries and conventions; [DEPLOYMENT.md](./DEPLOYMENT.md) and [PRODUCTION.md](./PRODUCTION.md) for first production deploy.
 
 ## What ClientShield Will Do
 
@@ -29,14 +29,16 @@ This repository contains the application foundation — secure multi-tenant work
 
 ```
 app/                  # Next.js App Router pages and API routes
-  (dashboard)/        # Main application sections
+  (dashboard)/        # Main application sections (+ Server Actions)
   api/                # Server-side API endpoints (includes /api/health)
-components/           # Reusable UI and layout components
-lib/                  # Shared utilities, auth, validations, startup
+components/           # Feature UI, shared ui/, workflow chrome
+lib/                  # Auth, validations, security, observability, actions
+  actions/            # Shared ActionResult helpers for Server Actions
   auth/               # Auth.js + Auth0 helpers
   startup/            # Production startup validation
 prisma/               # Database schema and migrations
-services/             # Business logic layer
+services/             # Domain business logic (org-scoped; split by responsibility)
+types/                # Shared DTOs + ActionResult
 workers/              # Background workers (Wazuh sync, SLA escalation)
 nginx/                # Production reverse proxy config
 scripts/              # Entrypoint, backups, tests

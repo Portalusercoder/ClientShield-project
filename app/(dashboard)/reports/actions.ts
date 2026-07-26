@@ -7,12 +7,7 @@ import {
   archiveReport,
   generateSecurityPostureReport,
 } from "@/services/reports/report.service";
-import type { ActionResult } from "@/types/findings";
-
-function toError(error: unknown): ActionResult<never> {
-  if (error instanceof Error) return { success: false, error: error.message };
-  return { success: false, error: "An unexpected error occurred" };
-}
+import { toActionError, type ActionResult } from "@/lib/actions";
 
 export async function generateReportAction(
   formData: FormData
@@ -64,7 +59,7 @@ export async function generateReportAction(
     revalidatePath(`/reports/${result.id}`);
     return { success: true, data: result };
   } catch (error) {
-    return toError(error);
+    return toActionError(error);
   }
 }
 
@@ -85,6 +80,6 @@ export async function archiveReportAction(
     revalidatePath(`/reports/${reportId}`);
     return { success: true, data: undefined };
   } catch (error) {
-    return toError(error);
+    return toActionError(error);
   }
 }

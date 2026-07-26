@@ -45,14 +45,8 @@ import {
   updateIncidentSeverity,
   updateIncidentStatus,
 } from "@/services/incidents.service";
-import type { ActionResult } from "@/types/incidents";
+import { toActionError, type ActionResult } from "@/lib/actions";
 
-function toActionError(error: unknown): ActionResult<never> {
-  if (error instanceof Error) {
-    return { success: false, error: error.message };
-  }
-  return { success: false, error: "An unexpected error occurred" };
-}
 
 function revalidateIncidentPaths(
   incidentId: string,

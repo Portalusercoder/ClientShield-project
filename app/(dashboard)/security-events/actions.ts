@@ -1,5 +1,6 @@
 "use server";
 
+import { actionOk, toActionError, type ActionResult } from "@/lib/actions";
 import { revalidatePath } from "next/cache";
 import { assertMinimumRole, requireSession } from "@/lib/auth";
 import {
@@ -33,21 +34,6 @@ import {
   syncWazuhSecurityEvents,
 } from "@/services/wazuh/wazuh-ingestion.service";
 import { runPostIngestionInvestigationHooks } from "@/services/investigations/post-ingestion.service";
-import { WazuhIngestionLockError } from "@/services/wazuh/wazuh-ingestion-lock.service";
-
-export interface ActionResult<T> {
-  success: boolean;
-  data?: T;
-  error?: string;
-}
-
-function toActionError(error: unknown): ActionResult<never> {
-  if (error instanceof WazuhIngestionLockError) {
-    return { success: false, error: error.message };
-  }
-  if (error instanceof Error) return { success: false, error: error.message };
-  return { success: false, error: "An unexpected error occurred" };
-}
 
 async function runPostIngestionHooksSafely(
   organizationId: string,
@@ -176,7 +162,7 @@ export async function dismissSeInvestigationSuggestionAction(input: {
     });
     revalidateSecurityEventPaths(input.securityEventId);
     revalidatePath("/investigations/candidates");
-    return { success: true };
+    return actionOk();
   } catch (error) {
     return toActionError(error);
   }
@@ -194,7 +180,7 @@ export async function startSecurityEventReviewAction(
       eventId,
     });
     revalidateSecurityEventPaths(eventId);
-    return { success: true };
+    return actionOk();
   } catch (error) {
     return toActionError(error);
   }
@@ -212,7 +198,7 @@ export async function acknowledgeSecurityEventAction(
       eventId,
     });
     revalidateSecurityEventPaths(eventId);
-    return { success: true };
+    return actionOk();
   } catch (error) {
     return toActionError(error);
   }
@@ -241,7 +227,7 @@ export async function dismissSecurityEventAction(
       data: parsed.data,
     });
     revalidateSecurityEventPaths(eventId);
-    return { success: true };
+    return actionOk();
   } catch (error) {
     return toActionError(error);
   }
@@ -331,7 +317,7 @@ export async function unlinkSecurityEventFromIncidentAction(input: {
     revalidateSecurityEventPaths(input.securityEventId, {
       incidentId: input.incidentId,
     });
-    return { success: true };
+    return actionOk();
   } catch (error) {
     return toActionError(error);
   }
@@ -511,7 +497,7 @@ export async function upsertWazuhAgentMappingAction(
       ...parsed.data,
     });
     revalidatePath("/integrations/wazuh");
-    return { success: true };
+    return actionOk();
   } catch (error) {
     return toActionError(error);
   }
@@ -529,7 +515,7 @@ export async function removeWazuhAgentMappingAction(
       wazuhAgentId,
     });
     revalidatePath("/integrations/wazuh");
-    return { success: true };
+    return actionOk();
   } catch (error) {
     return toActionError(error);
   }

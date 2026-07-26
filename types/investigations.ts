@@ -237,9 +237,7 @@ export type InvestigationDetailViewModel = {
   threatIntelConfigured: boolean;
 };
 
-export type ActionResult<T = undefined> =
-  | { success: true; data: T }
-  | { success: false; error: string };
+export type { ActionResult } from "@/types/action-result";
 
 export type CorrelationScoreResult = {
   score: number;

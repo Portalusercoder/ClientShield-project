@@ -18,10 +18,14 @@ export function applySecurityHeaders(headers: HeaderSink): void {
     "Permissions-Policy",
     "camera=(), microphone=(), geolocation=(), payment=(), usb=(), interest-cohort=()"
   );
-  headers.set("Cross-Origin-Opener-Policy", "same-origin");
-  headers.set("Cross-Origin-Resource-Policy", "same-origin");
   headers.set("X-DNS-Prefetch-Control", "off");
   headers.set("X-XSS-Protection", "0");
+
+  // COOP/CORP can interfere with Auth0 redirect/local tooling in development.
+  if (process.env.NODE_ENV === "production") {
+    headers.set("Cross-Origin-Opener-Policy", "same-origin");
+    headers.set("Cross-Origin-Resource-Policy", "same-origin");
+  }
 
   if (cfg.enableHsts && process.env.NODE_ENV === "production") {
     headers.set(

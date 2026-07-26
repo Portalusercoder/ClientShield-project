@@ -169,6 +169,4 @@ export interface DashboardIncident {
   assignedToName: string | null;
 }
 
-export type ActionResult<T = undefined> =
-  | { success: true; data: T }
-  | { success: false; error: string };
+export type { ActionResult } from "@/types/action-result";

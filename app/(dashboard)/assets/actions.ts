@@ -14,14 +14,8 @@ import {
   getAssetById,
   updateAsset,
 } from "@/services/assets.service";
-import type { AssetActionResult } from "@/types/asset";
+import { toActionError, type ActionResult as AssetActionResult } from "@/lib/actions";
 
-function toActionError(error: unknown): AssetActionResult<never> {
-  if (error instanceof Error) {
-    return { success: false, error: error.message };
-  }
-  return { success: false, error: "An unexpected error occurred" };
-}
 
 export async function createAssetAction(
   formData: FormData

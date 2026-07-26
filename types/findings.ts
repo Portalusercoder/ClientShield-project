@@ -180,9 +180,7 @@ export interface RemediationListResult {
   users: { id: string; name: string | null; email: string }[];
 }
 
-export type ActionResult<T = void> =
-  | { success: true; data: T }
-  | { success: false; error: string };
+export type { ActionResult } from "@/types/action-result";
 
 export const PASSIVE_REMEDIATION_GUIDANCE: Record<string, string> = {
   HTTPS_UNAVAILABLE:

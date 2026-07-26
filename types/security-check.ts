@@ -88,6 +88,7 @@ export interface SecurityCheckDetail extends SecurityCheckListItem {
   scanType: string;
 }
 
-export type SecurityCheckActionResult<T = void> =
-  | { success: true; data: T }
-  | { success: false; error: string };
+import type { ActionResult } from "@/types/action-result";
+
+/** @deprecated Prefer ActionResult from `@/types/action-result`. */
+export type SecurityCheckActionResult<T = void> = ActionResult<T>;

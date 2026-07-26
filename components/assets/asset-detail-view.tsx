@@ -1,23 +1,9 @@
 "use client";
 
-import { useState, useTransition, useMemo } from "react";
-import Link from "next/link";
+import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { archiveAssetAction } from "@/app/(dashboard)/assets/actions";
-import {
-  AssetAuthorizationBadge,
-  AssetCriticalityBadge,
-  AssetEnvironmentBadge,
-  AssetMonitoringBadge,
-  AssetTypeBadge,
-} from "@/components/assets/asset-badges";
 import { AssetFormModal } from "@/components/assets/asset-form-modal";
-import { RunSecurityCheckButton } from "@/components/assets/run-security-check-button";
-import { RunZapBaselineButton } from "@/components/assets/run-zap-baseline-button";
-import { SecurityChecksPanel } from "@/components/assets/security-checks-panel";
-import { SecurityPostureCard } from "@/components/assets/security-posture-card";
-import { PostureScoreBreakdownCard } from "@/components/scoring/posture-score-breakdown-card";
-import { ZapScansPanel } from "@/components/assets/zap-scans-panel";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -26,108 +12,26 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { EmptyState } from "@/components/ui/empty-state";
-import { PageBreadcrumbs } from "@/components/workflow/page-breadcrumbs";
-import { RelatedObjectsPanel } from "@/components/workflow/related-objects-panel";
-import { WorkflowQuickActions } from "@/components/workflow/workflow-quick-actions";
-import { formatDate } from "@/lib/utils";
-import type { AssetClientOption, AssetDetail } from "@/types/asset";
+import { ActivityTab } from "@/components/assets/detail/activity-tab";
+import { EnrollmentTab } from "@/components/assets/detail/enrollment-tab";
+import { FindingsTab } from "@/components/assets/detail/findings-tab";
+import { AssetDetailHeader } from "@/components/assets/detail/header";
+import { IncidentsTab } from "@/components/assets/detail/incidents-tab";
+import { OverviewTab } from "@/components/assets/detail/overview-tab";
+import { AssetRelatedQuickActions } from "@/components/assets/detail/related-quick-actions";
+import { SecurityChecksTab } from "@/components/assets/detail/security-checks-tab";
+import { SecurityEventsTab } from "@/components/assets/detail/security-events-tab";
+import { getBlockedReason } from "@/components/assets/detail/shared";
+import { ENDPOINT_TYPES } from "@/components/assets/detail/types";
 import type {
-  PostureStatus,
-  SecurityCheckListItem,
-} from "@/types/security-check";
-import type { ZapScanListItem } from "@/types/zap";
-import type { AssetPostureScoreResult } from "@/types/scoring";
-import {
-  IncidentSeverityBadge,
-  IncidentStatusBadge,
-} from "@/components/incidents/incident-badges";
-import {
-  SecurityEventSeverityBadge,
-  SecurityEventStatusBadge,
-} from "@/components/security-events/security-event-badges";
-import { EndpointEnrollmentPanel } from "@/components/wazuh/endpoint-enrollment-panel";
-import type {
-  EndpointWazuhReadiness,
-  WazuhAgentEnrollmentRecord,
-} from "@/types/wazuh-enrollment";
+  AssetDetailViewProps,
+  Tab,
+} from "@/components/assets/detail/types";
 
-type Tab =
-  | "overview"
-  | "security-checks"
-  | "findings"
-  | "incidents"
-  | "security-events"
-  | "enrollment"
-  | "activity";
-
-const ENDPOINT_TYPES = new Set(["WORKSTATION", "SERVER"]);
-
-export interface AssetFindingItem {
-  id: string;
-  title: string;
-  severity: string;
-  status: string;
-  source?: string;
-  code: string | null;
-  instanceCount?: number;
-  firstDetectedAt?: Date;
-  lastDetectedAt?: Date;
-  /** @deprecated use firstDetectedAt */
-  createdAt?: Date;
-}
-
-interface AssetIncidentItem {
-  id: string;
-  title: string;
-  severity: "CRITICAL" | "HIGH" | "MEDIUM" | "LOW" | "INFO";
-  status:
-    | "OPEN"
-    | "ACKNOWLEDGED"
-    | "INVESTIGATING"
-    | "CONTAINED"
-    | "ERADICATED"
-    | "RECOVERING"
-    | "RESOLVED"
-    | "CLOSED";
-  detectedAt: Date;
-  assignedToName: string | null;
-}
-
-interface AssetSecurityEventItem {
-  id: string;
-  title: string;
-  severity: "CRITICAL" | "HIGH" | "MEDIUM" | "LOW" | "INFO";
-  status: string;
-  agentName: string | null;
-  occurrenceCount: number;
-  lastSeenAt: Date;
-  ruleId: string | null;
-}
-
-interface AssetDetailViewProps {
-  asset: AssetDetail;
-  clients: AssetClientOption[];
-  canEdit: boolean;
-  canArchive: boolean;
-  canRunCheck: boolean;
-  securityChecks: SecurityCheckListItem[];
-  zapScans: ZapScanListItem[];
-  findings: AssetFindingItem[];
-  incidents: AssetIncidentItem[];
-  securityEvents: AssetSecurityEventItem[];
-  posture: {
-    https: PostureStatus;
-    tls: PostureStatus;
-    headers: PostureStatus;
-    cookies: PostureStatus;
-  } | null;
-  findingsPosture: AssetPostureScoreResult;
-  passiveCheckScore?: number | null;
-  enrollments?: WazuhAgentEnrollmentRecord[];
-  endpointReadiness?: EndpointWazuhReadiness | null;
-  canManageEnrollment?: boolean;
-}
+export type {
+  AssetDetailViewProps,
+  AssetFindingItem,
+} from "@/components/assets/detail/types";
 
 export function AssetDetailView({
   asset,
@@ -167,9 +71,7 @@ export function AssetDetailView({
     { id: "activity", label: "Activity" },
   ];
 
-  const blockedReason = !canRunCheck
-    ? getBlockedReason(asset)
-    : null;
+  const blockedReason = !canRunCheck ? getBlockedReason(asset) : null;
 
   function handleArchive() {
     setError(null);
@@ -185,154 +87,26 @@ export function AssetDetailView({
     });
   }
 
-  const relatedObjects = useMemo(() => {
-    const items: {
-      id: string;
-      kind: "finding" | "incident" | "security-event" | "endpoint";
-      label: string;
-      href: string;
-      meta?: string;
-    }[] = [];
-    for (const f of findings.slice(0, 3)) {
-      items.push({
-        id: f.id,
-        kind: "finding",
-        label: f.title,
-        href: `/vulnerabilities/${f.id}`,
-        meta: f.severity,
-      });
-    }
-    for (const i of incidents.slice(0, 3)) {
-      items.push({
-        id: i.id,
-        kind: "incident",
-        label: i.title,
-        href: `/incidents/${i.id}`,
-        meta: i.status,
-      });
-    }
-    for (const e of securityEvents.slice(0, 3)) {
-      items.push({
-        id: e.id,
-        kind: "security-event",
-        label: e.title,
-        href: `/security-events/${e.id}`,
-        meta: e.status,
-      });
-    }
-    if (isEndpoint) {
-      items.push({
-        id: `${asset.id}-enrollment`,
-        kind: "endpoint",
-        label: "Endpoint enrollment",
-        href: `/assets/${asset.id}/enrollment`,
-        meta: "Endpoint",
-      });
-    }
-    return items;
-  }, [findings, incidents, securityEvents, isEndpoint, asset.id]);
-
-  const quickActions = useMemo(() => {
-    const actions: {
-      id: string;
-      label: string;
-      href: string;
-      available: boolean;
-    }[] = [
-      {
-        id: "client",
-        label: "Open Client",
-        href: `/clients/${asset.clientId}`,
-        available: Boolean(asset.clientId),
-      },
-    ];
-    if (isEndpoint) {
-      actions.push({
-        id: "enrollment",
-        label: "Open Enrollment",
-        href: `/assets/${asset.id}/enrollment`,
-        available: true,
-      });
-    }
-    if (findings[0]) {
-      actions.push({
-        id: "finding",
-        label: "Open Finding",
-        href: `/vulnerabilities/${findings[0].id}`,
-        available: true,
-      });
-    }
-    return actions;
-  }, [asset.clientId, asset.id, isEndpoint, findings]);
-
   return (
     <div className="space-y-6">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-        <div className="space-y-2">
-          <PageBreadcrumbs
-            items={[
-              { label: "Assets", href: "/assets" },
-              ...(asset.clientId
-                ? [{ label: "Client", href: `/clients/${asset.clientId}` }]
-                : []),
-              { label: asset.name },
-            ]}
-          />
-          <div className="flex flex-wrap items-center gap-3">
-            <h1 className="text-2xl font-semibold text-foreground">
-              {asset.name}
-            </h1>
-            <AssetTypeBadge type={asset.type} />
-            <AssetMonitoringBadge status={asset.monitoringStatus} />
-          </div>
-          <p className="mt-1 text-sm text-muted">
-            Client:{" "}
-            <Link
-              href={`/clients/${asset.clientId}`}
-              className="text-accent hover:underline"
-            >
-              {asset.clientName}
-            </Link>
-          </p>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <RunSecurityCheckButton
-            assetId={asset.id}
-            canRun={canRunCheck}
-            blockedReason={blockedReason}
-          />
-          <RunZapBaselineButton
-            assetId={asset.id}
-            canRun={canRunCheck}
-            blockedReason={blockedReason}
-          />
-          {ENDPOINT_TYPES.has(asset.type) && (
-            <Link href={`/assets/${asset.id}/enrollment`}>
-              <Button variant="secondary">Remote enrollment</Button>
-            </Link>
-          )}
-          {canEdit && (
-            <Button variant="secondary" onClick={() => setEditOpen(true)}>
-              Edit Asset
-            </Button>
-          )}
-          {canArchive && asset.monitoringStatus !== "INACTIVE" && (
-            <Button variant="danger" onClick={() => setArchiveOpen(true)}>
-              Archive
-            </Button>
-          )}
-        </div>
-      </div>
+      <AssetDetailHeader
+        asset={asset}
+        canRunCheck={canRunCheck}
+        blockedReason={blockedReason}
+        isEndpoint={isEndpoint}
+        canEdit={canEdit}
+        canArchive={canArchive}
+        onEdit={() => setEditOpen(true)}
+        onArchive={() => setArchiveOpen(true)}
+      />
 
-      <div className="grid gap-4 lg:grid-cols-2">
-        <RelatedObjectsPanel
-          title="Related objects"
-          objects={relatedObjects}
-          emptyTitle="No related findings or events"
-          emptyDescription="Security Events, Findings, and Incidents for this asset will appear here once detected."
-        />
-        <WorkflowQuickActions actions={quickActions} />
-      </div>
+      <AssetRelatedQuickActions
+        asset={asset}
+        isEndpoint={isEndpoint}
+        findings={findings}
+        incidents={incidents}
+        securityEvents={securityEvents}
+      />
 
       <nav className="flex gap-1 overflow-x-auto border-b border-border">
         {tabs.map((tab) => (
@@ -352,336 +126,40 @@ export function AssetDetailView({
       </nav>
 
       {activeTab === "overview" && (
-        <div className="grid gap-6 lg:grid-cols-3">
-          <Card className="lg:col-span-2">
-            <CardHeader>
-              <CardTitle>Asset Information</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <dl className="grid gap-4 sm:grid-cols-2">
-                <InfoItem
-                  label="URL / Hostname"
-                  value={asset.location}
-                  isLink={Boolean(asset.url)}
-                />
-                <InfoItem label="Client" value={asset.clientName} />
-                <div>
-                  <dt className="text-xs font-medium text-muted">Type</dt>
-                  <dd className="mt-1">
-                    <AssetTypeBadge type={asset.type} />
-                  </dd>
-                </div>
-                <div>
-                  <dt className="text-xs font-medium text-muted">Environment</dt>
-                  <dd className="mt-1">
-                    <AssetEnvironmentBadge environment={asset.environment} />
-                  </dd>
-                </div>
-                <div>
-                  <dt className="text-xs font-medium text-muted">Criticality</dt>
-                  <dd className="mt-1">
-                    <AssetCriticalityBadge criticality={asset.criticality} />
-                  </dd>
-                </div>
-                <div>
-                  <dt className="text-xs font-medium text-muted">
-                    Authorization
-                  </dt>
-                  <dd className="mt-1">
-                    <AssetAuthorizationBadge
-                      status={asset.authorizationStatus}
-                    />
-                  </dd>
-                </div>
-                <div>
-                  <dt className="text-xs font-medium text-muted">Monitoring</dt>
-                  <dd className="mt-1">
-                    <AssetMonitoringBadge status={asset.monitoringStatus} />
-                  </dd>
-                </div>
-                <InfoItem
-                  label="Last Security Check"
-                  value={
-                    asset.lastSecurityCheckAt
-                      ? formatDate(asset.lastSecurityCheckAt)
-                      : "Never"
-                  }
-                />
-                <InfoItem label="Created" value={formatDate(asset.createdAt)} />
-                <InfoItem
-                  label="Last Updated"
-                  value={formatDate(asset.updatedAt)}
-                />
-              </dl>
-              {asset.description && (
-                <div className="mt-6 border-t border-border pt-4">
-                  <p className="text-xs font-medium text-muted">Description</p>
-                  <p className="mt-1 text-sm text-foreground">
-                    {asset.description}
-                  </p>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-
-          <div className="space-y-4">
-            {isEndpoint && (
-              <Card>
-                <CardHeader>
-                  <CardTitle>Wazuh endpoint enrollment</CardTitle>
-                  <CardDescription>
-                    {endpointReadiness?.message ??
-                      "Prepare remote agent enrollment for this endpoint."}
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-3 text-sm">
-                  <div className="flex justify-between gap-4">
-                    <span className="text-muted">Status</span>
-                    <span className="font-medium">
-                      {endpointReadiness?.displayStatus ?? "NOT_CONFIGURED"}
-                    </span>
-                  </div>
-                  {endpointReadiness?.mappedAgentId && (
-                    <div className="flex justify-between gap-4">
-                      <span className="text-muted">Mapped agent</span>
-                      <span className="font-medium">
-                        {endpointReadiness.mappedAgentId}
-                      </span>
-                    </div>
-                  )}
-                  <Link
-                    href={`/assets/${asset.id}/enrollment`}
-                    className="inline-flex text-accent hover:underline"
-                  >
-                    Open enrollment →
-                  </Link>
-                </CardContent>
-              </Card>
-            )}
-
-            <PostureScoreBreakdownCard
-              posture={findingsPosture}
-              passiveScore={passiveCheckScore}
-            />
-
-            <Card>
-              <CardHeader>
-                <CardTitle>Passive Check Indicators</CardTitle>
-                <CardDescription>
-                  HTTPS / TLS / Headers / Cookies from the latest passive check
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                {posture ? (
-                  <SecurityPostureCard {...posture} />
-                ) : (
-                  <p className="text-sm text-muted">
-                    Run a security check to populate posture indicators.
-                  </p>
-                )}
-              </CardContent>
-            </Card>
-          </div>
-        </div>
+        <OverviewTab
+          asset={asset}
+          isEndpoint={isEndpoint}
+          endpointReadiness={endpointReadiness}
+          findingsPosture={findingsPosture}
+          passiveCheckScore={passiveCheckScore}
+          posture={posture}
+        />
       )}
 
       {activeTab === "enrollment" && isEndpoint && (
-        <div className="space-y-4">
-          <div className="flex items-center justify-between">
-            <p className="text-sm text-muted">
-              Remote Wazuh agent enrollment for this endpoint.
-            </p>
-            <Link
-              href={`/assets/${asset.id}/enrollment`}
-              className="text-sm text-accent hover:underline"
-            >
-              Dedicated enrollment page
-            </Link>
-          </div>
-          <EndpointEnrollmentPanel
-            assetId={asset.id}
-            assetName={asset.name}
-            defaultHostname={asset.hostname}
-            authorizationStatus={asset.authorizationStatus}
-            canManage={canManageEnrollment}
-            readiness={endpointReadiness}
-            enrollments={enrollments}
-          />
-        </div>
+        <EnrollmentTab
+          asset={asset}
+          canManageEnrollment={canManageEnrollment}
+          endpointReadiness={endpointReadiness}
+          enrollments={enrollments}
+        />
       )}
 
       {activeTab === "security-checks" && (
-        <div className="space-y-8">
-          <div>
-            <h2 className="mb-1 text-sm font-medium text-foreground">
-              Passive Security Checks
-            </h2>
-            <p className="mb-4 text-xs text-muted">
-              HTTPS, TLS, headers, and cookie configuration observations.
-            </p>
-            <SecurityChecksPanel checks={securityChecks} />
-          </div>
-          <div>
-            <h2 className="mb-1 text-sm font-medium text-foreground">
-              ZAP Baseline Scans
-            </h2>
-            <p className="mb-4 text-xs text-muted">
-              OWASP ZAP spider + passive alerts only. Active Scan is not used.
-            </p>
-            <ZapScansPanel scans={zapScans} />
-          </div>
-        </div>
+        <SecurityChecksTab securityChecks={securityChecks} zapScans={zapScans} />
       )}
 
-      {activeTab === "findings" && (
-        <FindingsList findings={findings} />
-      )}
+      {activeTab === "findings" && <FindingsTab findings={findings} />}
 
       {activeTab === "incidents" && (
-        <div className="space-y-4">
-          <div className="flex items-center justify-between">
-            <p className="text-sm text-muted">
-              {incidents.length} incident{incidents.length !== 1 ? "s" : ""}
-            </p>
-            <Link
-              href={`/incidents?assetId=${asset.id}`}
-              className="text-sm text-accent hover:underline"
-            >
-              View in Incidents
-            </Link>
-          </div>
-          {incidents.length === 0 ? (
-            <EmptyState
-              title="No incidents"
-              description="No security incidents are linked to this asset."
-            />
-          ) : (
-            <div className="overflow-x-auto rounded-md border border-border">
-              <table className="w-full min-w-[640px] text-left text-sm">
-                <thead className="border-b border-border bg-surface/60 text-xs uppercase tracking-wide text-muted">
-                  <tr>
-                    <th className="px-4 py-3 font-medium">Severity</th>
-                    <th className="px-4 py-3 font-medium">Title</th>
-                    <th className="px-4 py-3 font-medium">Status</th>
-                    <th className="px-4 py-3 font-medium">Assigned To</th>
-                    <th className="px-4 py-3 font-medium">Detected</th>
-                    <th className="px-4 py-3 font-medium" />
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-border">
-                  {incidents.map((incident) => (
-                    <tr key={incident.id} className="hover:bg-surface/40">
-                      <td className="px-4 py-3">
-                        <IncidentSeverityBadge severity={incident.severity} />
-                      </td>
-                      <td className="px-4 py-3 font-medium">
-                        {incident.title}
-                      </td>
-                      <td className="px-4 py-3">
-                        <IncidentStatusBadge status={incident.status} />
-                      </td>
-                      <td className="px-4 py-3 text-muted">
-                        {incident.assignedToName ?? "Unassigned"}
-                      </td>
-                      <td className="px-4 py-3 text-muted">
-                        {formatDate(incident.detectedAt)}
-                      </td>
-                      <td className="px-4 py-3 text-right">
-                        <Link
-                          href={`/incidents/${incident.id}`}
-                          className="text-accent hover:underline"
-                        >
-                          View
-                        </Link>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
+        <IncidentsTab assetId={asset.id} incidents={incidents} />
       )}
 
       {activeTab === "security-events" && (
-        <div className="space-y-4">
-          <div className="flex items-center justify-between">
-            <p className="text-sm text-muted">
-              {securityEvents.length} mapped event
-              {securityEvents.length !== 1 ? "s" : ""}
-            </p>
-            <Link
-              href={`/security-events?assetId=${asset.id}`}
-              className="text-sm text-accent hover:underline"
-            >
-              View in Security Events
-            </Link>
-          </div>
-          {securityEvents.length === 0 ? (
-            <EmptyState
-              title="No security events"
-              description="Mapped Wazuh security events for this asset will appear here."
-            />
-          ) : (
-            <div className="overflow-x-auto rounded-md border border-border">
-              <table className="w-full min-w-[640px] text-left text-sm">
-                <thead className="border-b border-border bg-surface/60 text-xs uppercase tracking-wide text-muted">
-                  <tr>
-                    <th className="px-4 py-3 font-medium">Severity</th>
-                    <th className="px-4 py-3 font-medium">Event</th>
-                    <th className="px-4 py-3 font-medium">Status</th>
-                    <th className="px-4 py-3 font-medium">Rule</th>
-                    <th className="px-4 py-3 font-medium">Occurrences</th>
-                    <th className="px-4 py-3 font-medium">Last Seen</th>
-                    <th className="px-4 py-3 font-medium" />
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-border">
-                  {securityEvents.map((event) => (
-                    <tr key={event.id} className="hover:bg-surface/40">
-                      <td className="px-4 py-3">
-                        <SecurityEventSeverityBadge
-                          severity={event.severity}
-                        />
-                      </td>
-                      <td className="px-4 py-3 font-medium">{event.title}</td>
-                      <td className="px-4 py-3">
-                        <SecurityEventStatusBadge
-                          status={
-                            event.status as import("@prisma/client").SecurityEventStatus
-                          }
-                        />
-                      </td>
-                      <td className="px-4 py-3 text-muted">
-                        {event.ruleId ?? "—"}
-                      </td>
-                      <td className="px-4 py-3">{event.occurrenceCount}</td>
-                      <td className="px-4 py-3 text-muted">
-                        {formatDate(event.lastSeenAt)}
-                      </td>
-                      <td className="px-4 py-3 text-right">
-                        <Link
-                          href={`/security-events/${event.id}`}
-                          className="text-accent hover:underline"
-                        >
-                          View
-                        </Link>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
+        <SecurityEventsTab assetId={asset.id} securityEvents={securityEvents} />
       )}
 
-      {activeTab === "activity" && (
-        <EmptyState
-          title="Activity — Coming Soon"
-          description="Asset activity timeline will be available in a future release."
-        />
-      )}
+      {activeTab === "activity" && <ActivityTab />}
 
       {editOpen && (
         <AssetFormModal
@@ -729,131 +207,6 @@ export function AssetDetailView({
           </Card>
         </div>
       )}
-    </div>
-  );
-}
-
-function FindingsList({ findings }: { findings: AssetFindingItem[] }) {
-  if (findings.length === 0) {
-    return (
-      <EmptyState
-        title="No findings for this asset"
-        description="Passive configuration findings from security checks will appear here."
-      />
-    );
-  }
-
-  return (
-    <div className="overflow-x-auto rounded-lg border border-border">
-      <table className="w-full text-left text-sm">
-        <thead>
-          <tr className="border-b border-border bg-surface-elevated">
-            <th className="px-4 py-3 font-medium text-muted">Finding</th>
-            <th className="px-4 py-3 font-medium text-muted">Severity</th>
-            <th className="px-4 py-3 font-medium text-muted">Status</th>
-            <th className="hidden px-4 py-3 font-medium text-muted sm:table-cell">
-              Source
-            </th>
-            <th className="hidden px-4 py-3 font-medium text-muted md:table-cell">
-              Instances
-            </th>
-            <th className="hidden px-4 py-3 font-medium text-muted md:table-cell">
-              First Detected
-            </th>
-            <th className="px-4 py-3 font-medium text-muted">Last Detected</th>
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-border">
-          {findings.map((finding) => (
-            <tr key={finding.id} className="bg-surface">
-              <td className="px-4 py-3">
-                <Link
-                  href={`/vulnerabilities/${finding.id}`}
-                  className="font-medium text-foreground hover:text-accent"
-                >
-                  {finding.title}
-                </Link>
-                {finding.code && (
-                  <p className="text-xs text-muted">{finding.code}</p>
-                )}
-              </td>
-              <td className="px-4 py-3">{finding.severity}</td>
-              <td className="px-4 py-3">{finding.status}</td>
-              <td className="hidden px-4 py-3 text-muted sm:table-cell">
-                {finding.source ?? "—"}
-              </td>
-              <td className="hidden px-4 py-3 tabular-nums text-muted md:table-cell">
-                {finding.instanceCount && finding.instanceCount > 0
-                  ? finding.instanceCount
-                  : "—"}
-              </td>
-              <td className="hidden px-4 py-3 text-muted md:table-cell">
-                {formatDate(
-                  finding.firstDetectedAt ?? finding.createdAt ?? new Date()
-                )}
-              </td>
-              <td className="px-4 py-3 text-muted">
-                {formatDate(
-                  finding.lastDetectedAt ??
-                    finding.firstDetectedAt ??
-                    finding.createdAt ??
-                    new Date()
-                )}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
-function getBlockedReason(asset: AssetDetail): string {
-  if (asset.type !== "WEBSITE" && asset.type !== "WEB_APPLICATION") {
-    return "Passive checks only support WEBSITE and WEB_APPLICATION assets.";
-  }
-  if (asset.authorizationStatus !== "AUTHORIZED") {
-    return "Asset must be AUTHORIZED before running a security check.";
-  }
-  if (asset.monitoringStatus !== "ACTIVE") {
-    return "Asset monitoring status must be ACTIVE.";
-  }
-  if (!asset.url) {
-    return "Asset needs a stored URL before a security check can run.";
-  }
-  return "Unable to run security check.";
-}
-
-function InfoItem({
-  label,
-  value,
-  isLink,
-}: {
-  label: string;
-  value: string | null;
-  isLink?: boolean;
-}) {
-  return (
-    <div>
-      <dt className="text-xs font-medium text-muted">{label}</dt>
-      <dd className="mt-0.5 text-sm text-foreground">
-        {value ? (
-          isLink ? (
-            <a
-              href={value.startsWith("http") ? value : `https://${value}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-accent hover:underline"
-            >
-              {value.replace(/^https?:\/\//, "")}
-            </a>
-          ) : (
-            value
-          )
-        ) : (
-          <span className="text-muted">—</span>
-        )}
-      </dd>
     </div>
   );
 }

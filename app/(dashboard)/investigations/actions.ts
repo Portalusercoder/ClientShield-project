@@ -52,14 +52,8 @@ import {
   startInvestigation,
 } from "@/services/investigations/investigation.service";
 import { manualLookup } from "@/services/investigations/threat-intel.service";
-import type { ActionResult } from "@/types/investigations";
+import { toActionError, type ActionResult } from "@/lib/actions";
 
-function toActionError(error: unknown): ActionResult<never> {
-  if (error instanceof Error) {
-    return { success: false, error: error.message };
-  }
-  return { success: false, error: "An unexpected error occurred" };
-}
 
 function emptyToNull(v: FormDataEntryValue | null) {
   if (v == null || v === "") return null;

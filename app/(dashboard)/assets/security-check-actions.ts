@@ -9,12 +9,13 @@ import {
   runPassiveSecurityCheck,
 } from "@/services/security-checks/security-check.service";
 import type { SecurityCheckActionResult } from "@/types/security-check";
+import { toActionError } from "@/lib/actions";
 
 function toError(error: unknown): SecurityCheckActionResult<never> {
-  if (error instanceof Error) {
-    return { success: false, error: error.message };
+  if (!(error instanceof Error)) {
+    return { success: false, error: "Security check failed" };
   }
-  return { success: false, error: "Security check failed" };
+  return toActionError(error);
 }
 
 export async function runSecurityCheckAction(

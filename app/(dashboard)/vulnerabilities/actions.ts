@@ -22,14 +22,8 @@ import {
   updateRemediationTask,
 } from "@/services/remediation.service";
 import { verifyPassiveFindingFix } from "@/services/security-checks/verify-fix.service";
-import type { ActionResult } from "@/types/findings";
+import { toActionError, type ActionResult } from "@/lib/actions";
 
-function toActionError(error: unknown): ActionResult<never> {
-  if (error instanceof Error) {
-    return { success: false, error: error.message };
-  }
-  return { success: false, error: "An unexpected error occurred" };
-}
 
 export async function updateFindingStatusAction(
   findingId: string,

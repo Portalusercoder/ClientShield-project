@@ -59,9 +59,12 @@ function testHeaders() {
   assert(map.get("X-Content-Type-Options") === "nosniff", "nosniff");
   assert(map.get("X-Frame-Options") === "DENY", "frame");
   assert(map.get("Referrer-Policy")?.includes("strict-origin"), "referrer");
-  assert(map.get("Cross-Origin-Opener-Policy") === "same-origin", "coop");
-  assert(map.get("Cross-Origin-Resource-Policy") === "same-origin", "corp");
   assert(map.has("Permissions-Policy"), "permissions");
+  // COOP/CORP only in production
+  if (process.env.NODE_ENV === "production") {
+    assert(map.get("Cross-Origin-Opener-Policy") === "same-origin", "coop");
+    assert(map.get("Cross-Origin-Resource-Policy") === "same-origin", "corp");
+  }
 }
 
 function testRateLimit() {

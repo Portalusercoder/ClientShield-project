@@ -1,5 +1,6 @@
 "use server";
 
+import { actionOk, toActionError, type ActionResult } from "@/lib/actions";
 import { revalidatePath } from "next/cache";
 import { assertMinimumRole, requireSession } from "@/lib/auth";
 import {
@@ -15,20 +16,6 @@ import {
   verifyWazuhEnrollment,
 } from "@/services/wazuh/wazuh-enrollment.service";
 import type { EnrollmentInstructions } from "@/types/wazuh-enrollment";
-
-type ActionResult<T = void> =
-  | { success: true; data?: T }
-  | { success: false; error: string };
-
-function toActionError(error: unknown): ActionResult<never> {
-  if (error instanceof Error) {
-    if (error.message === "Unauthorized" || error.message === "Forbidden") {
-      return { success: false, error: error.message };
-    }
-    return { success: false, error: error.message };
-  }
-  return { success: false, error: "An unexpected error occurred" };
-}
 
 function revalidateEnrollmentPaths(assetId: string, clientId?: string) {
   revalidatePath(`/assets/${assetId}`);
@@ -182,7 +169,7 @@ export async function revokeEnrollmentAction(
 
     revalidateEnrollmentPaths(enrollment.assetId, enrollment.clientId);
 
-    return { success: true };
+    return actionOk();
   } catch (error) {
     return toActionError(error);
   }

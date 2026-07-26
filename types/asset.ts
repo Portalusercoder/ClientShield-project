@@ -53,6 +53,7 @@ export interface AssetListResult {
   clients: AssetClientOption[];
 }
 
-export type AssetActionResult<T = void> =
-  | { success: true; data: T }
-  | { success: false; error: string };
+import type { ActionResult } from "@/types/action-result";
+
+/** @deprecated Prefer ActionResult from `@/types/action-result`. */
+export type AssetActionResult<T = void> = ActionResult<T>;

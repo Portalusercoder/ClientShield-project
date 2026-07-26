@@ -1,4 +1,8 @@
 export type {
+  ActionResult,
+} from "@/types/action-result";
+
+export type {
   DashboardStats,
   SeverityDistribution,
   DashboardClientAttention,

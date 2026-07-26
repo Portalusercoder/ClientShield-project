@@ -107,6 +107,7 @@ export interface ZapScanDetail extends ZapScanListItem {
   findingsUpdated: number;
 }
 
-export type ZapActionResult<T = void> =
-  | { success: true; data: T }
-  | { success: false; error: string };
+import type { ActionResult } from "@/types/action-result";
+
+/** @deprecated Prefer ActionResult from `@/types/action-result`. */
+export type ZapActionResult<T = void> = ActionResult<T>;

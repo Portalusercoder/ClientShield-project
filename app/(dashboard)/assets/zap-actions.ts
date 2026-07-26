@@ -9,12 +9,13 @@ import {
   runZapBaselineScan,
 } from "@/services/zap/zap-baseline.service";
 import type { ZapActionResult } from "@/types/zap";
+import { toActionError } from "@/lib/actions";
 
 function toError(error: unknown): ZapActionResult<never> {
-  if (error instanceof Error) {
-    return { success: false, error: error.message };
+  if (!(error instanceof Error)) {
+    return { success: false, error: "ZAP baseline scan failed" };
   }
-  return { success: false, error: "ZAP baseline scan failed" };
+  return toActionError(error);
 }
 
 export async function runZapBaselineScanAction(

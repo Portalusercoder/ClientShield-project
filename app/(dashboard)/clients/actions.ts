@@ -42,24 +42,8 @@ import { transitionClientStatus } from "@/services/clients/client-lifecycle.serv
 import { upsertOrganizationSettings } from "@/services/organization/organization-settings.service";
 import { updateAsset } from "@/services/assets.service";
 import { assetIdSchema } from "@/lib/validations/assets";
-import type { ClientActionResult } from "@/types/client";
+import { toActionError, type ActionResult as ClientActionResult } from "@/lib/actions";
 
-function toActionError(error: unknown): ClientActionResult<never> {
-  if (
-    error &&
-    typeof error === "object" &&
-    (error as { name?: string }).name === "RateLimitError"
-  ) {
-    return { success: false, error: "Too many requests. Please try again later." };
-  }
-  if (error instanceof Error) {
-    if (error.message === "Unauthorized" || error.message === "Forbidden") {
-      return { success: false, error: error.message };
-    }
-    return { success: false, error: error.message };
-  }
-  return { success: false, error: "An unexpected error occurred" };
-}
 
 function revalidateClientPaths(clientId: string) {
   revalidatePath("/clients");
