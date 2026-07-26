@@ -1460,7 +1460,11 @@ model WazuhIngestionState {
   lastSyncFiltered     Int?
   lastSyncIgnored      Int?
   lastSyncSkippedDuplicates Int?
+  lastSyncSkippedMalformed Int?
   lastSyncErrors       Int?
+  lastSyncRetries      Int?
+  /// Last hard failure (indexer/DB/lock) — distinct from lastSuccessfulSyncAt.
+  lastFailedSyncAt     DateTime?
   createdAt            DateTime  @default(now())
   updatedAt            DateTime  @updatedAt
 

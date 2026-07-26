@@ -26,6 +26,8 @@ import {
   syncWazuhNewEventsFromCheckpoint,
   syncWazuhSecurityEvents,
 } from "@/services/wazuh/wazuh-ingestion.service";
+import { runPostIngestionInvestigationHooks } from "@/services/investigations/post-ingestion.service";
+import { WazuhIngestionLockError } from "@/services/wazuh/wazuh-ingestion-lock.service";
 
 export interface ActionResult<T> {
   success: boolean;
@@ -34,8 +36,24 @@ export interface ActionResult<T> {
 }
 
 function toActionError(error: unknown): ActionResult<never> {
+  if (error instanceof WazuhIngestionLockError) {
+    return { success: false, error: error.message };
+  }
   if (error instanceof Error) return { success: false, error: error.message };
   return { success: false, error: "An unexpected error occurred" };
+}
+
+async function runPostIngestionHooksSafely(
+  organizationId: string,
+  createdEventIds: string[]
+): Promise<void> {
+  try {
+    await runPostIngestionInvestigationHooks(organizationId, {
+      createdEventIds,
+    });
+  } catch {
+    // Isolated: never fail the sync action because hooks failed.
+  }
 }
 
 function revalidateSecurityEventPaths(
@@ -242,6 +260,10 @@ export async function syncWazuhNewEventsAction(): Promise<
     filtered: number;
     ignored: number;
     skippedDuplicates: number;
+    skippedMalformed: number;
+    errors: number;
+    retries: number;
+    durationMs: number;
   }>
 > {
   try {
@@ -251,8 +273,13 @@ export async function syncWazuhNewEventsAction(): Promise<
       organizationId: session.organizationId,
       actorId: session.userId,
     });
+    await runPostIngestionHooksSafely(
+      session.organizationId,
+      result.createdSecurityEventIds ?? []
+    );
     revalidatePath("/security-events");
     revalidatePath("/integrations/wazuh");
+    revalidatePath("/investigations");
     revalidatePath("/");
     return {
       success: true,
@@ -263,6 +290,10 @@ export async function syncWazuhNewEventsAction(): Promise<
         filtered: result.filtered,
         ignored: result.ignored,
         skippedDuplicates: result.skippedDuplicates,
+        skippedMalformed: result.skippedMalformed,
+        errors: result.errors,
+        retries: result.retries,
+        durationMs: result.durationMs,
       },
     };
   } catch (error) {
@@ -281,6 +312,10 @@ export async function syncWazuhEventsAction(input: {
     filtered: number;
     ignored: number;
     skippedDuplicates: number;
+    skippedMalformed: number;
+    errors: number;
+    retries: number;
+    durationMs: number;
   }>
 > {
   try {
@@ -299,8 +334,13 @@ export async function syncWazuhEventsAction(input: {
       mode: parsed.data.mode,
       continueFromCheckpoint: parsed.data.continueFromCheckpoint,
     });
+    await runPostIngestionHooksSafely(
+      session.organizationId,
+      result.createdSecurityEventIds ?? []
+    );
     revalidatePath("/security-events");
     revalidatePath("/integrations/wazuh");
+    revalidatePath("/investigations");
     revalidatePath("/");
     return {
       success: true,
@@ -311,6 +351,10 @@ export async function syncWazuhEventsAction(input: {
         filtered: result.filtered,
         ignored: result.ignored,
         skippedDuplicates: result.skippedDuplicates,
+        skippedMalformed: result.skippedMalformed,
+        errors: result.errors,
+        retries: result.retries,
+        durationMs: result.durationMs,
       },
     };
   } catch (error) {

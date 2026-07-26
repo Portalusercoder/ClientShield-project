@@ -108,8 +108,12 @@ async function main() {
         filtered: result.filtered,
         ignored: result.ignored,
         skippedDuplicates: result.skippedDuplicates,
+        skippedMalformed: result.skippedMalformed,
         errors: result.errors,
+        retries: result.retries,
         durationMs: result.durationMs,
+        checkpointTimestamp: result.lastTimestamp?.toISOString() ?? null,
+        checkpointDocumentId: result.lastDocumentId,
       });
 
       // Outside checkpoint / lock lifecycle: investigation hooks must never break sync.

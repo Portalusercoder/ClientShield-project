@@ -154,8 +154,11 @@ export interface WazuhIntegrationStatus {
   /** Cursor timestamp — only alerts strictly newer are eligible for sync. */
   checkpointTimestamp: string | null;
   lastSuccessfulSyncAt: string | null;
+  lastFailedSyncAt: string | null;
   lastAttemptAt: string | null;
   lastError: string | null;
+  /** Cursor document id for search_after resume (null after Initialize From Now). */
+  checkpointDocumentId: string | null;
   autoSyncEnabled: boolean;
   syncIntervalSeconds: number;
   minEventLevel: number;
@@ -169,7 +172,9 @@ export interface WazuhIntegrationStatus {
   lastSyncFiltered: number | null;
   lastSyncIgnored: number | null;
   lastSyncSkippedDuplicates: number | null;
+  lastSyncSkippedMalformed: number | null;
   lastSyncErrors: number | null;
+  lastSyncRetries: number | null;
   /** Computed from ledger when available (last 24h). */
   processedLast24h: number;
   createdLast24h: number;

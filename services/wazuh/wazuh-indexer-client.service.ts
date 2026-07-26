@@ -1,6 +1,7 @@
 import https from "node:https";
 import { URL } from "node:url";
 import { serverEnv } from "@/lib/env";
+import { buildWazuhAlertsSearchBody } from "@/lib/wazuh/ingestion-cursor";
 import { createWazuhTlsAgent } from "@/lib/wazuh/tls";
 
 export interface WazuhIndexerHit {
@@ -115,33 +116,16 @@ export async function checkWazuhIndexerHealth(): Promise<{
 }
 
 /**
- * Search wazuh-alerts-* incrementally using search_after when available.
- * GET/search only — never mutate Indexer data.
+ * Search wazuh-alerts-* incrementally.
+ * Uses search_after when both timestamp and documentId are present so
+ * same-timestamp collisions are never skipped. GET/search only.
  */
 export async function searchWazuhAlerts(input: {
   afterTimestamp?: Date | null;
   afterDocumentId?: string | null;
   size: number;
 }): Promise<WazuhIndexerSearchResult> {
-  const must: Record<string, unknown>[] = [];
-  if (input.afterTimestamp) {
-    must.push({
-      range: {
-        timestamp: {
-          gt: input.afterTimestamp.toISOString(),
-        },
-      },
-    });
-  }
-
-  const body: Record<string, unknown> = {
-    size: input.size,
-    sort: [{ timestamp: "asc" }, { _id: "asc" }],
-    query: must.length
-      ? { bool: { must } }
-      : { match_all: {} },
-    _source: true,
-  };
+  const body = buildWazuhAlertsSearchBody(input);
 
   const result = await indexerRequest<{
     hits?: {

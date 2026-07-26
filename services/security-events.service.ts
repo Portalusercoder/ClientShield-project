@@ -988,11 +988,12 @@ export async function getWazuhIntegrationStatus(
           },
         },
       }),
-      prisma.wazuhProcessedAlert.count({
+      prisma.securityEvent.count({
         where: {
           organizationId,
-          createdAt: { gte: since24h },
-          disposition: "FILTERED_DENYLIST",
+          source: "WAZUH",
+          classification: "IGNORED",
+          lastSeenAt: { gte: since24h },
         },
       }),
     ]);
@@ -1023,7 +1024,9 @@ export async function getWazuhIntegrationStatus(
     indexerStatus: "status" in indexer ? indexer.status : undefined,
     checkpointInitialized: Boolean(state?.lastTimestamp),
     checkpointTimestamp: state?.lastTimestamp?.toISOString() ?? null,
+    checkpointDocumentId: state?.lastDocumentId ?? null,
     lastSuccessfulSyncAt: state?.lastSuccessfulSyncAt?.toISOString() ?? null,
+    lastFailedSyncAt: state?.lastFailedSyncAt?.toISOString() ?? null,
     lastAttemptAt: state?.lastAttemptAt?.toISOString() ?? null,
     lastError: state?.lastError ?? indexer.error ?? manager.error ?? null,
     autoSyncEnabled,
@@ -1039,7 +1042,9 @@ export async function getWazuhIntegrationStatus(
     lastSyncFiltered: state?.lastSyncFiltered ?? null,
     lastSyncIgnored: state?.lastSyncIgnored ?? null,
     lastSyncSkippedDuplicates: state?.lastSyncSkippedDuplicates ?? null,
+    lastSyncSkippedMalformed: state?.lastSyncSkippedMalformed ?? null,
     lastSyncErrors: state?.lastSyncErrors ?? null,
+    lastSyncRetries: state?.lastSyncRetries ?? null,
     processedLast24h,
     createdLast24h,
     correlatedLast24h,

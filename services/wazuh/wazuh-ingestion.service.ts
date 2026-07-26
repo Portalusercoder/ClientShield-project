@@ -1,4 +1,4 @@
-import type { Prisma } from "@prisma/client";
+import type { Prisma, WazuhProcessedDisposition } from "@prisma/client";
 import { randomUUID } from "node:crypto";
 import { prisma } from "@/lib/db";
 import { serverEnv } from "@/lib/env";
@@ -7,6 +7,13 @@ import {
   WAZUH_INGESTION_BATCH_SIZE,
   WAZUH_SCA_CORRELATION_WINDOW_MS,
 } from "@/lib/wazuh/constants";
+import { isWazuhCheckpointForward } from "@/lib/wazuh/ingestion-cursor";
+import {
+  categorizeWazuhIngestionError,
+  isRetriableWazuhIngestionError,
+  shouldAbortWazuhSyncPageLoop,
+} from "@/lib/wazuh/ingestion-errors";
+import { logWazuhIngestion } from "@/lib/wazuh/ingestion-log";
 import { createAuditLog } from "@/services/audit.service";
 import {
   classifyWazuhAlert,
@@ -23,6 +30,7 @@ import {
 } from "@/services/security-events/security-event-activity.service";
 import {
   acquireWazuhIngestionDbLock,
+  assertWazuhIngestionDbLockRenewed,
   releaseWazuhIngestionDbLock,
   WazuhIngestionLockError,
 } from "@/services/wazuh/wazuh-ingestion-lock.service";
@@ -45,9 +53,11 @@ export interface WazuhSyncResult {
   skippedDuplicates: number;
   skippedMalformed: number;
   errors: number;
+  retries: number;
   lastTimestamp: Date | null;
+  lastDocumentId: string | null;
   durationMs: number;
-  /** SecurityEvent ids created in this sync (EVENT_CREATED only). Optional for callers. */
+  /** SecurityEvent ids created in this sync (EVENT_CREATED only). */
   createdSecurityEventIds: string[];
 }
 
@@ -56,6 +66,14 @@ export interface WazuhInitializeResult {
   basedOnNewestAlert: boolean;
   previousCheckpoint: Date | null;
 }
+
+type TxClient = Prisma.TransactionClient;
+
+type AgentMapping = {
+  wazuhAgentId: string;
+  clientId: string | null;
+  assetId: string | null;
+};
 
 function resolveConfiguredOrganizationId(sessionOrgId: string): string {
   const configured = serverEnv.WAZUH_ORGANIZATION_ID;
@@ -111,7 +129,10 @@ async function getOrCreateIngestionState(organizationId: string) {
   });
 }
 
-function emptyResult(lastTimestamp: Date | null): WazuhSyncResult {
+function emptyResult(
+  lastTimestamp: Date | null,
+  lastDocumentId: string | null
+): WazuhSyncResult {
   return {
     processed: 0,
     created: 0,
@@ -121,9 +142,41 @@ function emptyResult(lastTimestamp: Date | null): WazuhSyncResult {
     skippedDuplicates: 0,
     skippedMalformed: 0,
     errors: 0,
+    retries: 0,
     lastTimestamp,
+    lastDocumentId,
     durationMs: 0,
     createdSecurityEventIds: [],
+  };
+}
+
+async function advanceCheckpointInTx(
+  tx: TxClient,
+  input: {
+    organizationId: string;
+    current: { timestamp: Date | null; documentId: string | null };
+    nextTimestamp: Date;
+    nextDocumentId: string;
+  }
+): Promise<{ timestamp: Date; documentId: string } | null> {
+  if (
+    !isWazuhCheckpointForward(input.current, {
+      timestamp: input.nextTimestamp,
+      documentId: input.nextDocumentId,
+    })
+  ) {
+    return null;
+  }
+  await tx.wazuhIngestionState.update({
+    where: { organizationId: input.organizationId },
+    data: {
+      lastTimestamp: input.nextTimestamp,
+      lastDocumentId: input.nextDocumentId,
+    },
+  });
+  return {
+    timestamp: input.nextTimestamp,
+    documentId: input.nextDocumentId,
   };
 }
 
@@ -183,6 +236,12 @@ export async function initializeWazuhIngestionFromNow(input: {
       },
     });
 
+    logWazuhIngestion("info", "Ingestion checkpoint initialized", {
+      organizationId,
+      checkpointTimestamp: checkpointTimestamp.toISOString(),
+      basedOnNewestAlert,
+    });
+
     await createAuditLog({
       organizationId,
       actorId: input.actorId,
@@ -208,7 +267,10 @@ export async function initializeWazuhIngestionFromNow(input: {
     await prisma.wazuhIngestionState
       .update({
         where: { organizationId },
-        data: { lastError: message.slice(0, 500) },
+        data: {
+          lastError: message.slice(0, 500),
+          lastFailedSyncAt: new Date(),
+        },
       })
       .catch(() => {});
     await createAuditLog({
@@ -250,9 +312,344 @@ export async function syncWazuhNewEventsFromCheckpoint(input: {
   });
 }
 
+type AlertCommitOutcome =
+  | { kind: "duplicate" }
+  | { kind: "malformed" }
+  | { kind: "filtered"; disposition: WazuhProcessedDisposition }
+  | {
+      kind: "ingested";
+      disposition: "EVENT_CREATED" | "EVENT_CORRELATED";
+      securityEventId: string;
+      ignored: boolean;
+    };
+
+async function commitAlertInTransaction(input: {
+  organizationId: string;
+  documentId: string;
+  hitSource: Record<string, unknown> | undefined;
+  continueFromCheckpoint: boolean;
+  checkpointSnapshot: Date | null;
+  mappingByAgent: Map<string, AgentMapping>;
+  cursor: { timestamp: Date | null; documentId: string | null };
+}): Promise<{
+  outcome: AlertCommitOutcome;
+  cursor: { timestamp: Date | null; documentId: string | null };
+}> {
+  return prisma.$transaction(
+    async (tx) => {
+      let cursor = { ...input.cursor };
+
+      const existing = await tx.wazuhProcessedAlert.findUnique({
+        where: {
+          organizationId_documentId: {
+            organizationId: input.organizationId,
+            documentId: input.documentId,
+          },
+        },
+      });
+
+      if (existing) {
+        const ts = input.hitSource?.timestamp
+          ? new Date(String(input.hitSource.timestamp))
+          : null;
+        if (ts && !Number.isNaN(ts.getTime())) {
+          const advanced = await advanceCheckpointInTx(tx, {
+            organizationId: input.organizationId,
+            current: cursor,
+            nextTimestamp: ts,
+            nextDocumentId: input.documentId,
+          });
+          if (advanced) cursor = advanced;
+        }
+        return { outcome: { kind: "duplicate" as const }, cursor };
+      }
+
+      const normalized = normalizeWazuhAlertHit({
+        _id: input.documentId,
+        _source: input.hitSource,
+      });
+
+      if (!normalized) {
+        await tx.wazuhProcessedAlert.create({
+          data: {
+            organizationId: input.organizationId,
+            documentId: input.documentId,
+            disposition: "MALFORMED",
+            filterReason: "Failed normalization",
+          },
+        });
+        const ts = input.hitSource?.timestamp
+          ? new Date(String(input.hitSource.timestamp))
+          : null;
+        if (ts && !Number.isNaN(ts.getTime())) {
+          const advanced = await advanceCheckpointInTx(tx, {
+            organizationId: input.organizationId,
+            current: cursor,
+            nextTimestamp: ts,
+            nextDocumentId: input.documentId,
+          });
+          if (advanced) cursor = advanced;
+        }
+        return { outcome: { kind: "malformed" as const }, cursor };
+      }
+
+      if (
+        input.continueFromCheckpoint &&
+        input.checkpointSnapshot &&
+        normalized.timestamp.getTime() < input.checkpointSnapshot.getTime()
+      ) {
+        // Strictly before checkpoint tip (defense in depth for search_after).
+        await tx.wazuhProcessedAlert.create({
+          data: {
+            organizationId: input.organizationId,
+            documentId: normalized.documentId,
+            alertTimestamp: normalized.timestamp,
+            disposition: "DUPLICATE",
+            filterReason: "Before checkpoint",
+          },
+        });
+        const advanced = await advanceCheckpointInTx(tx, {
+          organizationId: input.organizationId,
+          current: cursor,
+          nextTimestamp: normalized.timestamp,
+          nextDocumentId: normalized.documentId,
+        });
+        if (advanced) cursor = advanced;
+        return { outcome: { kind: "duplicate" as const }, cursor };
+      }
+
+      // Same-timestamp at checkpoint: allow if documentId is after tip.
+      if (
+        input.continueFromCheckpoint &&
+        input.checkpointSnapshot &&
+        normalized.timestamp.getTime() === input.checkpointSnapshot.getTime() &&
+        cursor.documentId &&
+        normalized.documentId <= cursor.documentId
+      ) {
+        await tx.wazuhProcessedAlert.create({
+          data: {
+            organizationId: input.organizationId,
+            documentId: normalized.documentId,
+            alertTimestamp: normalized.timestamp,
+            disposition: "DUPLICATE",
+            filterReason: "At or before checkpoint document",
+          },
+        });
+        return { outcome: { kind: "duplicate" as const }, cursor };
+      }
+
+      const policy = evaluateWazuhIngestionPolicy(normalized);
+      if (policy.action === "FILTER") {
+        await tx.wazuhProcessedAlert.create({
+          data: {
+            organizationId: input.organizationId,
+            documentId: normalized.documentId,
+            alertTimestamp: normalized.timestamp,
+            disposition: policy.disposition,
+            filterReason: policy.reason.slice(0, 500),
+          },
+        });
+        const advanced = await advanceCheckpointInTx(tx, {
+          organizationId: input.organizationId,
+          current: cursor,
+          nextTimestamp: normalized.timestamp,
+          nextDocumentId: normalized.documentId,
+        });
+        if (advanced) cursor = advanced;
+        return {
+          outcome: {
+            kind: "filtered" as const,
+            disposition: policy.disposition,
+          },
+          cursor,
+        };
+      }
+
+      const classification = classifyWazuhAlert(normalized);
+      const ignored = classification === "IGNORED";
+
+      const mapping = normalized.agentId
+        ? input.mappingByAgent.get(normalized.agentId)
+        : undefined;
+      const applyMapping =
+        mapping &&
+        normalized.agentId !== "000" &&
+        mapping.clientId &&
+        mapping.assetId
+          ? mapping
+          : null;
+
+      const assetId = applyMapping?.assetId ?? null;
+      const correlationKey = buildCorrelationKey({
+        organizationId: input.organizationId,
+        assetId,
+        alert: normalized,
+      });
+
+      const alertIsSca = isScaAlert(normalized);
+      const windowMs = correlationWindowMs(alertIsSca);
+      const windowLabel = correlationWindowLabel(alertIsSca);
+
+      const openEvent = await tx.securityEvent.findFirst({
+        where: {
+          organizationId: input.organizationId,
+          correlationKey,
+          status: { in: ["NEW", "REVIEWING", "ACKNOWLEDGED"] },
+        },
+        orderBy: { lastSeenAt: "desc" },
+      });
+
+      let securityEventId: string;
+      let disposition: "EVENT_CREATED" | "EVENT_CORRELATED";
+
+      if (
+        openEvent &&
+        isWithinCorrelationWindow(
+          openEvent.lastSeenAt,
+          normalized.timestamp,
+          windowMs
+        )
+      ) {
+        const nextCount = openEvent.occurrenceCount + 1;
+        const correlationSummary = buildCorrelationSummary({
+          organizationId: input.organizationId,
+          assetId,
+          alert: normalized,
+          occurrenceCount: nextCount,
+          windowLabel,
+        });
+        const updated = await tx.securityEvent.update({
+          where: { id: openEvent.id },
+          data: {
+            lastSeenAt: normalized.timestamp,
+            occurrenceCount: { increment: 1 },
+            externalEventId: normalized.documentId,
+            classification,
+            correlationSummary,
+            scaCheckId: normalized.scaCheckId ?? openEvent.scaCheckId,
+            username: normalized.username ?? openEvent.username,
+            processName: normalized.processName ?? openEvent.processName,
+            filePath: normalized.filePath ?? openEvent.filePath,
+            commandLine:
+              sanitizeFreeText(normalized.commandLine, 500) ??
+              openEvent.commandLine,
+            rawDataSanitized:
+              normalized.rawDataSanitized as Prisma.InputJsonValue,
+          },
+        });
+        securityEventId = updated.id;
+        disposition = "EVENT_CORRELATED";
+        await recordOrUpdateCorrelatedOccurrence({
+          organizationId: input.organizationId,
+          securityEventId,
+          occurrenceCount: updated.occurrenceCount,
+          correlationSummary,
+          db: tx,
+        });
+      } else {
+        const correlationSummary = buildCorrelationSummary({
+          organizationId: input.organizationId,
+          assetId,
+          alert: normalized,
+          occurrenceCount: 1,
+          windowLabel,
+        });
+        const created = await tx.securityEvent.create({
+          data: {
+            organizationId: input.organizationId,
+            clientId: applyMapping?.clientId ?? null,
+            assetId,
+            source: "WAZUH",
+            externalEventId: normalized.documentId,
+            ruleId: normalized.ruleId,
+            ruleLevel: normalized.ruleLevel,
+            ruleDescription: sanitizeFreeText(
+              normalized.ruleDescription,
+              2000
+            ),
+            ruleGroups: normalized.ruleGroups,
+            agentId: normalized.agentId,
+            agentName: normalized.agentName,
+            severity: normalized.severity,
+            status: "NEW",
+            classification,
+            title: sanitizeFreeText(normalized.title, 300) ?? "Wazuh alert",
+            summary: sanitizeFreeText(normalized.summary, 2000),
+            firstSeenAt: normalized.timestamp,
+            lastSeenAt: normalized.timestamp,
+            occurrenceCount: 1,
+            correlationKey,
+            correlationSummary,
+            scaCheckId: normalized.scaCheckId,
+            sourceIp: normalized.sourceIp,
+            destinationIp: normalized.destinationIp,
+            sourcePort: normalized.sourcePort,
+            destinationPort: normalized.destinationPort,
+            protocol: normalized.protocol,
+            username: sanitizeFreeText(normalized.username, 200),
+            processName: sanitizeFreeText(normalized.processName, 300),
+            filePath: sanitizeFreeText(normalized.filePath, 1000),
+            commandLine: sanitizeFreeText(normalized.commandLine, 500),
+            mitreTactics: normalized.mitreTactics,
+            mitreTechniques: normalized.mitreTechniques,
+            pciDss: normalized.pciDss,
+            gdpr: normalized.gdpr,
+            hipaa: normalized.hipaa,
+            nist: normalized.nist,
+            rawDataSanitized:
+              normalized.rawDataSanitized as Prisma.InputJsonValue,
+          },
+        });
+        securityEventId = created.id;
+        disposition = "EVENT_CREATED";
+        await recordSecurityEventActivity({
+          organizationId: input.organizationId,
+          securityEventId,
+          activityType: "CREATED",
+          message: `Security event created from Wazuh alert (${normalized.ruleId ?? "unknown rule"}).`,
+          metadata: {
+            documentId: normalized.documentId,
+            ruleId: normalized.ruleId,
+          },
+          db: tx,
+        });
+      }
+
+      await tx.wazuhProcessedAlert.create({
+        data: {
+          organizationId: input.organizationId,
+          documentId: normalized.documentId,
+          securityEventId,
+          alertTimestamp: normalized.timestamp,
+          disposition,
+        },
+      });
+
+      const advanced = await advanceCheckpointInTx(tx, {
+        organizationId: input.organizationId,
+        current: cursor,
+        nextTimestamp: normalized.timestamp,
+        nextDocumentId: normalized.documentId,
+      });
+      if (advanced) cursor = advanced;
+
+      return {
+        outcome: {
+          kind: "ingested" as const,
+          disposition,
+          securityEventId,
+          ignored,
+        },
+        cursor,
+      };
+    },
+    { timeout: 30_000 }
+  );
+}
+
 /**
  * Controlled Wazuh → Security Events sync (manual or scheduled).
- * Does NOT import historical alerts older than the checkpoint when continuing from it.
+ * Forward-only, transactional per alert, lock-renewed across pages.
  */
 export async function syncWazuhSecurityEvents(input: {
   organizationId: string;
@@ -265,6 +662,7 @@ export async function syncWazuhSecurityEvents(input: {
   const lockedBy =
     input.lockedBy ?? `sync:${input.actorId}:${randomUUID().slice(0, 8)}`;
   const startedAt = Date.now();
+  const correlationId = randomUUID().slice(0, 12);
 
   try {
     await acquireWazuhIngestionDbLock({ organizationId, lockedBy });
@@ -291,10 +689,20 @@ export async function syncWazuhSecurityEvents(input: {
         mode: input.mode,
         continueFromCheckpoint: Boolean(input.continueFromCheckpoint),
         lockedBy,
+        correlationId,
       },
     });
 
-    const result = emptyResult(state.lastTimestamp);
+    logWazuhIngestion("info", "Sync started", {
+      correlationId,
+      organizationId,
+      mode: input.mode,
+      continueFromCheckpoint: Boolean(input.continueFromCheckpoint),
+      checkpointTimestamp: state.lastTimestamp?.toISOString() ?? null,
+      checkpointDocumentId: state.lastDocumentId ?? null,
+    });
+
+    const result = emptyResult(state.lastTimestamp, state.lastDocumentId);
 
     if (input.continueFromCheckpoint && !state.lastTimestamp) {
       throw new Error(
@@ -306,6 +714,10 @@ export async function syncWazuhSecurityEvents(input: {
       input.continueFromCheckpoint && state.lastTimestamp
         ? state.lastTimestamp
         : initialCursorForMode(input.mode);
+    let afterDocumentId: string | null =
+      input.continueFromCheckpoint && state.lastTimestamp
+        ? state.lastDocumentId
+        : null;
 
     if (
       input.mode === "FROM_NOW" &&
@@ -316,6 +728,7 @@ export async function syncWazuhSecurityEvents(input: {
         where: { organizationId },
         data: {
           lastTimestamp: afterTimestamp,
+          lastDocumentId: null,
           lastSuccessfulSyncAt: new Date(),
           lastError: null,
         },
@@ -332,12 +745,12 @@ export async function syncWazuhSecurityEvents(input: {
       return result;
     }
 
-    if (input.continueFromCheckpoint && state.lastTimestamp) {
-      afterTimestamp = state.lastTimestamp;
-    }
-
-    // Snapshot checkpoint for skip comparisons — never move backwards.
+    // Snapshot for defense-in-depth skip comparisons — never move backwards.
     const checkpointSnapshot = state.lastTimestamp;
+    let cursor = {
+      timestamp: state.lastTimestamp,
+      documentId: state.lastDocumentId,
+    };
 
     const mappings = await prisma.wazuhAgentMapping.findMany({
       where: { organizationId, status: "ACTIVE" },
@@ -352,321 +765,237 @@ export async function syncWazuhSecurityEvents(input: {
     );
 
     let hasMore = true;
+    let abortReason: string | null = null;
+
     while (hasMore) {
-      const page = await searchWazuhAlerts({
-        afterTimestamp,
-        size: WAZUH_INGESTION_BATCH_SIZE,
-      });
+      await assertWazuhIngestionDbLockRenewed({ organizationId, lockedBy });
+
+      let page;
+      try {
+        page = await searchWazuhAlerts({
+          afterTimestamp,
+          afterDocumentId,
+          size: WAZUH_INGESTION_BATCH_SIZE,
+        });
+      } catch (error) {
+        const category = categorizeWazuhIngestionError(error);
+        if (isRetriableWazuhIngestionError(category)) {
+          result.retries++;
+          logWazuhIngestion("warn", "Retrying indexer search", {
+            correlationId,
+            category,
+          });
+          try {
+            page = await searchWazuhAlerts({
+              afterTimestamp,
+              afterDocumentId,
+              size: WAZUH_INGESTION_BATCH_SIZE,
+            });
+          } catch (retryError) {
+            const retryCategory = categorizeWazuhIngestionError(retryError);
+            logWazuhIngestion("error", "Indexer search failed after retry", {
+              correlationId,
+              category: retryCategory,
+              error:
+                retryError instanceof Error
+                  ? retryError.message.slice(0, 200)
+                  : "unknown",
+            });
+            result.errors++;
+            abortReason = retryCategory;
+            hasMore = false;
+            break;
+          }
+        } else {
+          logWazuhIngestion("error", "Indexer search failed", {
+            correlationId,
+            category,
+            error:
+              error instanceof Error ? error.message.slice(0, 200) : "unknown",
+          });
+          result.errors++;
+          abortReason = category;
+          hasMore = false;
+          break;
+        }
+      }
 
       if (page.hits.length === 0) {
         hasMore = false;
         break;
       }
 
+      // Batch ledger lookup — reduces per-alert duplicate queries.
+      const pageIds = page.hits.map((h) => h._id);
+      const existingRows = await prisma.wazuhProcessedAlert.findMany({
+        where: {
+          organizationId,
+          documentId: { in: pageIds },
+        },
+        select: { documentId: true },
+      });
+      const existingSet = new Set(existingRows.map((r) => r.documentId));
+
       for (const hit of page.hits) {
         result.processed++;
-        try {
-          const existing = await prisma.wazuhProcessedAlert.findUnique({
-            where: {
-              organizationId_documentId: {
-                organizationId,
-                documentId: hit._id,
-              },
-            },
-          });
-          if (existing) {
-            result.skippedDuplicates++;
-            const ts = hit._source?.timestamp
-              ? new Date(String(hit._source.timestamp))
-              : null;
-            if (ts && !Number.isNaN(ts.getTime())) {
-              afterTimestamp = ts;
-              if (
-                !result.lastTimestamp ||
-                ts.getTime() > result.lastTimestamp.getTime()
-              ) {
-                result.lastTimestamp = ts;
-                await prisma.wazuhIngestionState.update({
-                  where: { organizationId },
-                  data: {
-                    lastTimestamp: ts,
-                    lastDocumentId: hit._id,
-                  },
-                });
-              }
-            }
-            continue;
-          }
 
-          const normalized = normalizeWazuhAlertHit({
-            _id: hit._id,
-            _source: hit._source,
-          });
-          if (!normalized) {
-            result.skippedMalformed++;
-            await prisma.wazuhProcessedAlert.create({
-              data: {
-                organizationId,
-                documentId: hit._id,
-                disposition: "MALFORMED",
-                filterReason: "Failed normalization",
-              },
-            });
-            const ts = hit._source?.timestamp
-              ? new Date(String(hit._source.timestamp))
-              : null;
-            if (ts && !Number.isNaN(ts.getTime())) {
-              afterTimestamp = ts;
-              result.lastTimestamp = ts;
-              await prisma.wazuhIngestionState.update({
-                where: { organizationId },
-                data: {
-                  lastTimestamp: ts,
-                  lastDocumentId: hit._id,
-                },
-              });
-            }
-            continue;
-          }
-
-          if (
-            input.continueFromCheckpoint &&
-            checkpointSnapshot &&
-            normalized.timestamp.getTime() <= checkpointSnapshot.getTime()
-          ) {
-            result.skippedDuplicates++;
-            await prisma.wazuhProcessedAlert.create({
-              data: {
-                organizationId,
-                documentId: normalized.documentId,
-                alertTimestamp: normalized.timestamp,
-                disposition: "DUPLICATE",
-                filterReason: "At or before checkpoint",
-              },
-            });
-            continue;
-          }
-
-          // Always advance cursor for a successfully normalized document
-          // before optional SecurityEvent creation (idempotent ledger first).
-          const policy = evaluateWazuhIngestionPolicy(normalized);
-          if (policy.action === "FILTER") {
-            await prisma.wazuhProcessedAlert.create({
-              data: {
-                organizationId,
-                documentId: normalized.documentId,
-                alertTimestamp: normalized.timestamp,
-                disposition: policy.disposition,
-                filterReason: policy.reason.slice(0, 500),
-              },
-            });
-            result.filtered++;
-            afterTimestamp = normalized.timestamp;
-            result.lastTimestamp = normalized.timestamp;
-            await prisma.wazuhIngestionState.update({
-              where: { organizationId },
-              data: {
-                lastTimestamp: normalized.timestamp,
-                lastDocumentId: normalized.documentId,
-              },
-            });
-            continue;
-          }
-
-          const classification = classifyWazuhAlert(normalized);
-          // IGNORED classification still creates a SecurityEvent (visible + filterable).
-          if (classification === "IGNORED") {
-            result.ignored++;
-          }
-
-          const mapping = normalized.agentId
-            ? mappingByAgent.get(normalized.agentId)
-            : undefined;
-          const applyMapping =
-            mapping &&
-            normalized.agentId !== "000" &&
-            mapping.clientId &&
-            mapping.assetId
-              ? mapping
-              : null;
-
-          const assetId = applyMapping?.assetId ?? null;
-          const correlationKey = buildCorrelationKey({
+        const processOnce = async () =>
+          commitAlertInTransaction({
             organizationId,
-            assetId,
-            alert: normalized,
+            documentId: hit._id,
+            hitSource: hit._source,
+            continueFromCheckpoint: Boolean(input.continueFromCheckpoint),
+            checkpointSnapshot,
+            mappingByAgent,
+            cursor,
           });
 
-          const alertIsSca = isScaAlert(normalized);
-          const windowMs = correlationWindowMs(alertIsSca);
-          const windowLabel = correlationWindowLabel(alertIsSca);
-
-          const openEvent = await prisma.securityEvent.findFirst({
-            where: {
-              organizationId,
-              correlationKey,
-              status: { in: ["NEW", "REVIEWING", "ACKNOWLEDGED"] },
-            },
-            orderBy: { lastSeenAt: "desc" },
-          });
-
-          let securityEventId: string;
-          let disposition: "EVENT_CREATED" | "EVENT_CORRELATED";
-
-          if (
-            openEvent &&
-            isWithinCorrelationWindow(
-              openEvent.lastSeenAt,
-              normalized.timestamp,
-              windowMs
-            )
-          ) {
-            const nextCount = openEvent.occurrenceCount + 1;
-            const correlationSummary = buildCorrelationSummary({
-              organizationId,
-              assetId,
-              alert: normalized,
-              occurrenceCount: nextCount,
-              windowLabel,
-            });
-            const updated = await prisma.securityEvent.update({
-              where: { id: openEvent.id },
-              data: {
-                lastSeenAt: normalized.timestamp,
-                occurrenceCount: { increment: 1 },
-                externalEventId: normalized.documentId,
-                classification,
-                correlationSummary,
-                scaCheckId: normalized.scaCheckId ?? openEvent.scaCheckId,
-                username: normalized.username ?? openEvent.username,
-                processName: normalized.processName ?? openEvent.processName,
-                filePath: normalized.filePath ?? openEvent.filePath,
-                commandLine:
-                  sanitizeFreeText(normalized.commandLine, 500) ??
-                  openEvent.commandLine,
-                rawDataSanitized:
-                  normalized.rawDataSanitized as Prisma.InputJsonValue,
-              },
-            });
-            securityEventId = updated.id;
-            result.updated++;
-            disposition = "EVENT_CORRELATED";
-            await recordOrUpdateCorrelatedOccurrence({
-              organizationId,
-              securityEventId,
-              occurrenceCount: updated.occurrenceCount,
-              correlationSummary,
-            });
-          } else {
-            const correlationSummary = buildCorrelationSummary({
-              organizationId,
-              assetId,
-              alert: normalized,
-              occurrenceCount: 1,
-              windowLabel,
-            });
-            const created = await prisma.securityEvent.create({
-              data: {
-                organizationId,
-                clientId: applyMapping?.clientId ?? null,
-                assetId,
-                source: "WAZUH",
-                externalEventId: normalized.documentId,
-                ruleId: normalized.ruleId,
-                ruleLevel: normalized.ruleLevel,
-                ruleDescription: sanitizeFreeText(
-                  normalized.ruleDescription,
-                  2000
-                ),
-                ruleGroups: normalized.ruleGroups,
-                agentId: normalized.agentId,
-                agentName: normalized.agentName,
-                severity: normalized.severity,
-                status: "NEW",
-                classification,
-                title: sanitizeFreeText(normalized.title, 300) ?? "Wazuh alert",
-                summary: sanitizeFreeText(normalized.summary, 2000),
-                firstSeenAt: normalized.timestamp,
-                lastSeenAt: normalized.timestamp,
-                occurrenceCount: 1,
-                correlationKey,
-                correlationSummary,
-                scaCheckId: normalized.scaCheckId,
-                sourceIp: normalized.sourceIp,
-                destinationIp: normalized.destinationIp,
-                sourcePort: normalized.sourcePort,
-                destinationPort: normalized.destinationPort,
-                protocol: normalized.protocol,
-                username: sanitizeFreeText(normalized.username, 200),
-                processName: sanitizeFreeText(normalized.processName, 300),
-                filePath: sanitizeFreeText(normalized.filePath, 1000),
-                commandLine: sanitizeFreeText(normalized.commandLine, 500),
-                mitreTactics: normalized.mitreTactics,
-                mitreTechniques: normalized.mitreTechniques,
-                pciDss: normalized.pciDss,
-                gdpr: normalized.gdpr,
-                hipaa: normalized.hipaa,
-                nist: normalized.nist,
-                rawDataSanitized:
-                  normalized.rawDataSanitized as Prisma.InputJsonValue,
-              },
-            });
-            securityEventId = created.id;
-            result.created++;
-            result.createdSecurityEventIds.push(created.id);
-            disposition = "EVENT_CREATED";
-            await recordSecurityEventActivity({
-              organizationId,
-              securityEventId,
-              activityType: "CREATED",
-              message: `Security event created from Wazuh alert (${normalized.ruleId ?? "unknown rule"}).`,
-              metadata: {
-                documentId: normalized.documentId,
-                ruleId: normalized.ruleId,
-              },
-            });
+        try {
+          // Fast path: already in ledger — still advance cursor transactionally.
+          if (existingSet.has(hit._id)) {
+            const committed = await processOnce();
+            cursor = committed.cursor;
+            result.skippedDuplicates++;
+            result.lastTimestamp = cursor.timestamp;
+            result.lastDocumentId = cursor.documentId;
+            afterTimestamp = cursor.timestamp ?? afterTimestamp;
+            afterDocumentId = cursor.documentId;
+            continue;
           }
 
-          await prisma.wazuhProcessedAlert.create({
-            data: {
-              organizationId,
-              documentId: normalized.documentId,
-              securityEventId,
-              alertTimestamp: normalized.timestamp,
-              disposition,
-            },
-          });
+          let committed;
+          try {
+            committed = await processOnce();
+          } catch (firstError) {
+            const category = categorizeWazuhIngestionError(firstError);
+            if (category === "DUPLICATE") {
+              result.skippedDuplicates++;
+              // Re-read cursor from DB after concurrent commit.
+              const fresh = await prisma.wazuhIngestionState.findUnique({
+                where: { organizationId },
+                select: { lastTimestamp: true, lastDocumentId: true },
+              });
+              if (fresh) {
+                cursor = {
+                  timestamp: fresh.lastTimestamp,
+                  documentId: fresh.lastDocumentId,
+                };
+                result.lastTimestamp = cursor.timestamp;
+                result.lastDocumentId = cursor.documentId;
+                afterTimestamp = cursor.timestamp ?? afterTimestamp;
+                afterDocumentId = cursor.documentId;
+              }
+              continue;
+            }
+            if (isRetriableWazuhIngestionError(category)) {
+              result.retries++;
+              logWazuhIngestion("warn", "Retrying alert commit", {
+                correlationId,
+                category,
+                documentId: hit._id,
+              });
+              committed = await processOnce();
+            } else if (shouldAbortWazuhSyncPageLoop(category)) {
+              result.errors++;
+              abortReason = category;
+              logWazuhIngestion("error", "Aborting sync page loop", {
+                correlationId,
+                category,
+                documentId: hit._id,
+                error:
+                  firstError instanceof Error
+                    ? firstError.message.slice(0, 200)
+                    : "unknown",
+              });
+              hasMore = false;
+              break;
+            } else {
+              result.errors++;
+              logWazuhIngestion("warn", "Alert commit failed; continuing", {
+                correlationId,
+                category,
+                documentId: hit._id,
+                error:
+                  firstError instanceof Error
+                    ? firstError.message.slice(0, 200)
+                    : "unknown",
+              });
+              continue;
+            }
+          }
 
-          afterTimestamp = normalized.timestamp;
-          result.lastTimestamp = normalized.timestamp;
+          cursor = committed.cursor;
+          result.lastTimestamp = cursor.timestamp;
+          result.lastDocumentId = cursor.documentId;
+          afterTimestamp = cursor.timestamp ?? afterTimestamp;
+          afterDocumentId = cursor.documentId;
 
-          await prisma.wazuhIngestionState.update({
-            where: { organizationId },
-            data: {
-              lastTimestamp: normalized.timestamp,
-              lastDocumentId: normalized.documentId,
-            },
-          });
-        } catch {
+          switch (committed.outcome.kind) {
+            case "duplicate":
+              result.skippedDuplicates++;
+              break;
+            case "malformed":
+              result.skippedMalformed++;
+              break;
+            case "filtered":
+              result.filtered++;
+              break;
+            case "ingested":
+              if (committed.outcome.ignored) result.ignored++;
+              if (committed.outcome.disposition === "EVENT_CREATED") {
+                result.created++;
+                result.createdSecurityEventIds.push(
+                  committed.outcome.securityEventId
+                );
+              } else {
+                result.updated++;
+              }
+              break;
+          }
+        } catch (error) {
+          const category = categorizeWazuhIngestionError(error);
           result.errors++;
-          hasMore = false;
-          break;
+          logWazuhIngestion("error", "Unexpected alert processing failure", {
+            correlationId,
+            category,
+            documentId: hit._id,
+            error: error instanceof Error ? error.message.slice(0, 200) : "unknown",
+          });
+          if (shouldAbortWazuhSyncPageLoop(category)) {
+            abortReason = category;
+            hasMore = false;
+            break;
+          }
         }
+      }
+
+      if (abortReason) {
+        hasMore = false;
+        break;
       }
 
       if (page.hits.length < WAZUH_INGESTION_BATCH_SIZE) {
         hasMore = false;
+      } else if (cursor.timestamp) {
+        // Next page resumes strictly after last committed cursor via search_after.
+        afterTimestamp = cursor.timestamp;
+        afterDocumentId = cursor.documentId;
       }
     }
 
     result.durationMs = Date.now() - startedAt;
 
+    const hardFailure = Boolean(abortReason);
+    const softErrors = result.errors > 0 && !hardFailure;
+
     await prisma.wazuhIngestionState.update({
       where: { organizationId },
       data: {
-        lastSuccessfulSyncAt: new Date(),
-        lastError:
-          result.errors > 0
+        lastSuccessfulSyncAt: hardFailure ? undefined : new Date(),
+        lastFailedSyncAt: hardFailure || softErrors ? new Date() : undefined,
+        lastError: hardFailure
+          ? `Aborted: ${abortReason} (${result.errors} error(s))`.slice(0, 500)
+          : softErrors
             ? `Completed with ${result.errors} processing error(s)`
             : null,
         lastSyncDurationMs: result.durationMs,
@@ -676,8 +1005,28 @@ export async function syncWazuhSecurityEvents(input: {
         lastSyncFiltered: result.filtered,
         lastSyncIgnored: result.ignored,
         lastSyncSkippedDuplicates: result.skippedDuplicates,
+        lastSyncSkippedMalformed: result.skippedMalformed,
         lastSyncErrors: result.errors,
+        lastSyncRetries: result.retries,
       },
+    });
+
+    logWazuhIngestion("info", "Sync completed", {
+      correlationId,
+      organizationId,
+      processed: result.processed,
+      created: result.created,
+      updated: result.updated,
+      filtered: result.filtered,
+      ignored: result.ignored,
+      skippedDuplicates: result.skippedDuplicates,
+      skippedMalformed: result.skippedMalformed,
+      errors: result.errors,
+      retries: result.retries,
+      durationMs: result.durationMs,
+      checkpointTimestamp: result.lastTimestamp?.toISOString() ?? null,
+      checkpointDocumentId: result.lastDocumentId,
+      abortReason,
     });
 
     await createAuditLog({
@@ -688,6 +1037,7 @@ export async function syncWazuhSecurityEvents(input: {
       resourceId: state.id,
       metadata: {
         mode: input.mode,
+        correlationId,
         processed: result.processed,
         created: result.created,
         updated: result.updated,
@@ -696,8 +1046,11 @@ export async function syncWazuhSecurityEvents(input: {
         skippedDuplicates: result.skippedDuplicates,
         skippedMalformed: result.skippedMalformed,
         errors: result.errors,
+        retries: result.retries,
         durationMs: result.durationMs,
         lastTimestamp: result.lastTimestamp?.toISOString() ?? null,
+        lastDocumentId: result.lastDocumentId,
+        abortReason,
       },
     });
 
@@ -705,9 +1058,19 @@ export async function syncWazuhSecurityEvents(input: {
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "Wazuh sync failed";
+    const category = categorizeWazuhIngestionError(error);
+    logWazuhIngestion("error", "Sync failed", {
+      correlationId,
+      organizationId,
+      category,
+      error: message.slice(0, 200),
+    });
     await prisma.wazuhIngestionState.update({
       where: { organizationId },
-      data: { lastError: message.slice(0, 500) },
+      data: {
+        lastError: message.slice(0, 500),
+        lastFailedSyncAt: new Date(),
+      },
     });
     await createAuditLog({
       organizationId,
@@ -715,7 +1078,12 @@ export async function syncWazuhSecurityEvents(input: {
       action: "WAZUH_SYNC_FAILED",
       resourceType: "WazuhIngestion",
       resourceId: state.id,
-      metadata: { mode: input.mode, error: message.slice(0, 200) },
+      metadata: {
+        mode: input.mode,
+        correlationId,
+        category,
+        error: message.slice(0, 200),
+      },
     });
     throw error;
   } finally {

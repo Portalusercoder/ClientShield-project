@@ -91,7 +91,7 @@ export function WazuhIntegrationClient({
         return;
       }
       setMessage(
-        `Sync complete: processed ${result.data?.processed ?? 0}, created ${result.data?.created ?? 0}, correlated ${result.data?.updated ?? 0}, filtered ${result.data?.filtered ?? 0}, ignored ${result.data?.ignored ?? 0}, duplicates skipped ${result.data?.skippedDuplicates ?? 0}.`
+        `Sync complete: processed ${result.data?.processed ?? 0}, created ${result.data?.created ?? 0}, correlated ${result.data?.updated ?? 0}, filtered ${result.data?.filtered ?? 0}, ignored ${result.data?.ignored ?? 0}, duplicates skipped ${result.data?.skippedDuplicates ?? 0}, malformed ${result.data?.skippedMalformed ?? 0}, errors ${result.data?.errors ?? 0}, retries ${result.data?.retries ?? 0} (${result.data?.durationMs ?? 0} ms).`
       );
       router.refresh();
     });
@@ -241,6 +241,26 @@ export function WazuhIntegrationClient({
             ok
           />
           <StatusRow
+            label="Last sync duplicates skipped"
+            value={String(status.lastSyncSkippedDuplicates ?? "—")}
+            ok
+          />
+          <StatusRow
+            label="Last sync malformed"
+            value={String(status.lastSyncSkippedMalformed ?? "—")}
+            ok
+          />
+          <StatusRow
+            label="Last sync errors"
+            value={String(status.lastSyncErrors ?? "—")}
+            ok={(status.lastSyncErrors ?? 0) === 0}
+          />
+          <StatusRow
+            label="Last sync retries"
+            value={String(status.lastSyncRetries ?? "—")}
+            ok
+          />
+          <StatusRow
             label="Processed (24h)"
             value={String(processedLast24h)}
             ok
@@ -261,13 +281,13 @@ export function WazuhIntegrationClient({
             ok
           />
           <StatusRow
-            label="Ignored / denylist (24h)"
+            label="Ignored classification (24h)"
             value={String(ignoredLast24h)}
             ok
           />
           <p className="rounded-md border border-border bg-surface-elevated px-3 py-2 text-xs text-muted">
-            Filtered = below minimum Wazuh rule level (or allowlist miss).
-            Ignored = explicitly denied by policy. Noisy / Informational /
+            Filtered = below minimum Wazuh rule level (or allowlist miss / denylist).
+            Ignored = Security Events classified IGNORED. Noisy / Informational /
             Actionable are classifications on ingested Security Events.
           </p>
         </CardContent>
@@ -308,6 +328,11 @@ export function WazuhIntegrationClient({
             ok={Boolean(status.checkpointTimestamp)}
           />
           <StatusRow
+            label="Checkpoint document id"
+            value={status.checkpointDocumentId ?? "—"}
+            ok={Boolean(status.checkpointDocumentId)}
+          />
+          <StatusRow
             label="Last Successful Sync"
             value={
               status.lastSuccessfulSyncAt
@@ -316,6 +341,13 @@ export function WazuhIntegrationClient({
             }
             ok={Boolean(status.lastSuccessfulSyncAt)}
           />
+          {status.lastFailedSyncAt && (
+            <StatusRow
+              label="Last Failed Sync"
+              value={formatDateTime(status.lastFailedSyncAt)}
+              ok={false}
+            />
+          )}
           {status.lastAttemptAt && (
             <StatusRow
               label="Last Attempt"

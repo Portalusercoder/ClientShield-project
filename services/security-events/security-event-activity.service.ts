@@ -2,6 +2,8 @@ import type { Prisma, SecurityEventActivityType } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { sanitizeFreeText } from "@/services/wazuh/wazuh-sanitizer.service";
 
+type DbClient = Prisma.TransactionClient | typeof prisma;
+
 export async function recordSecurityEventActivity(input: {
   organizationId: string;
   securityEventId: string;
@@ -10,8 +12,11 @@ export async function recordSecurityEventActivity(input: {
   message: string;
   note?: string | null;
   metadata?: Prisma.InputJsonValue;
+  /** Optional transaction client for atomic ingestion. */
+  db?: DbClient;
 }): Promise<void> {
-  await prisma.securityEventActivity.create({
+  const db = input.db ?? prisma;
+  await db.securityEventActivity.create({
     data: {
       organizationId: input.organizationId,
       securityEventId: input.securityEventId,
@@ -33,8 +38,10 @@ export async function recordOrUpdateCorrelatedOccurrence(input: {
   securityEventId: string;
   occurrenceCount: number;
   correlationSummary: string | null;
+  db?: DbClient;
 }): Promise<void> {
-  const existing = await prisma.securityEventActivity.findFirst({
+  const db = input.db ?? prisma;
+  const existing = await db.securityEventActivity.findFirst({
     where: {
       organizationId: input.organizationId,
       securityEventId: input.securityEventId,
@@ -54,14 +61,14 @@ export async function recordOrUpdateCorrelatedOccurrence(input: {
   } satisfies Prisma.InputJsonValue;
 
   if (existing) {
-    await prisma.securityEventActivity.update({
+    await db.securityEventActivity.update({
       where: { id: existing.id },
       data: { message, metadata },
     });
     return;
   }
 
-  await prisma.securityEventActivity.create({
+  await db.securityEventActivity.create({
     data: {
       organizationId: input.organizationId,
       securityEventId: input.securityEventId,

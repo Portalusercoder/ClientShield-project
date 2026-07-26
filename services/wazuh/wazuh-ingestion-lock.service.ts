@@ -72,15 +72,19 @@ export async function releaseWazuhIngestionDbLock(input: {
   `;
 }
 
+/**
+ * Extend the active lease. Returns false if the lock is no longer held
+ * (expired / stolen) — callers must abort safely.
+ */
 export async function renewWazuhIngestionDbLock(input: {
   organizationId: string;
   lockedBy: string;
   leaseMs?: number;
-}): Promise<void> {
+}): Promise<boolean> {
   const leaseMs = input.leaseMs ?? DEFAULT_LEASE_MS;
   const now = new Date();
   const expiresAt = new Date(now.getTime() + leaseMs);
-  await prisma.$executeRaw`
+  const updated = await prisma.$executeRaw`
     UPDATE "WazuhIngestionState"
     SET
       "lockExpiresAt" = ${expiresAt},
@@ -88,6 +92,23 @@ export async function renewWazuhIngestionDbLock(input: {
     WHERE "organizationId" = ${input.organizationId}
       AND "lockedBy" = ${input.lockedBy}
   `;
+  return Number(updated) > 0;
+}
+
+/**
+ * Renew or throw — used during long sync runs.
+ */
+export async function assertWazuhIngestionDbLockRenewed(input: {
+  organizationId: string;
+  lockedBy: string;
+  leaseMs?: number;
+}): Promise<void> {
+  const ok = await renewWazuhIngestionDbLock(input);
+  if (!ok) {
+    throw new WazuhIngestionLockError(
+      "Wazuh ingestion lock lost during sync — aborting safely"
+    );
+  }
 }
 
 export async function touchWazuhWorkerHeartbeat(input: {
