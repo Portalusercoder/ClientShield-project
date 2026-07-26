@@ -1,22 +1,25 @@
 import { NextResponse } from "next/server";
-import { getOrganizationId } from "@/lib/auth";
+import { requireSession } from "@/lib/auth";
 import {
   getRequestId,
   toSafeError,
   withApiRoute,
 } from "@/lib/observability";
-import { getDashboardData } from "@/services/dashboard.service";
+import { getSocAnalystDashboard } from "@/services/dashboard/soc-dashboard.service";
 
 /**
  * GET /api/dashboard/stats
  *
- * Returns dashboard metrics for the authenticated organization.
+ * Returns SOC analyst dashboard metrics for the authenticated user/org.
  */
 export async function GET() {
   try {
     return await withApiRoute("dashboard.stats", async () => {
-      const organizationId = await getOrganizationId();
-      const data = await getDashboardData(organizationId);
+      const session = await requireSession();
+      const data = await getSocAnalystDashboard({
+        organizationId: session.organizationId,
+        userId: session.userId,
+      });
       const requestId = getRequestId();
 
       return NextResponse.json(
@@ -24,8 +27,8 @@ export async function GET() {
           success: true,
           data,
           meta: {
-            source: "mock",
-            message: "Dashboard data is mock data for MVP development",
+            source: "live",
+            message: "SOC analyst dashboard aggregation",
             requestId,
           },
         },
@@ -39,11 +42,6 @@ export async function GET() {
       requestId: getRequestId(),
       action: "dashboard.stats",
     });
-    return NextResponse.json(safe.client, {
-      status: safe.httpStatus,
-      headers: safe.client.requestId
-        ? { "x-request-id": safe.client.requestId }
-        : undefined,
-    });
+    return NextResponse.json(safe.client, { status: safe.httpStatus });
   }
 }

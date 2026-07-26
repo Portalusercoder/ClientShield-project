@@ -30,6 +30,8 @@
     "test:zap-agg": "npx tsx scripts/test-zap-aggregation.ts",
     "test:triage": "npx tsx scripts/test-triage-workflow.ts",
     "test:scoring": "npx tsx scripts/test-security-posture-scoring.ts",
+    "test:soc-dashboard": "npx tsx scripts/test-soc-dashboard.ts",
+    "test:executive-dashboard": "npx tsx scripts/test-executive-dashboard.ts",
     "test:reports": "npx tsx scripts/test-reports.ts",
     "test:incidents": "npx tsx scripts/test-incidents.ts",
     "test:incident-case": "npx tsx scripts/test-incident-case.ts",

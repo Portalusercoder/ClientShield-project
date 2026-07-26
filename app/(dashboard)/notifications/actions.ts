@@ -85,5 +85,6 @@ export async function markAllNotificationsReadAction() {
     userId: session.userId,
   });
   revalidatePath("/notifications");
+  revalidatePath("/");
   return count;
 }
