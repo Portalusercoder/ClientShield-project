@@ -221,18 +221,18 @@ export function AttentionPageClient({
           onChange={updateFilter}
           options={[
             { value: "ALL", label: "All" },
-            { value: "UNACKNOWLEDGED", label: "Unacknowledged" },
+            { value: "UNACKNOWLEDGED", label: "Not acknowledged" },
             { value: "ACKNOWLEDGED", label: "Acknowledged" },
           ]}
         />
         <SelectFilter
-          label="Ownership"
+          label="Claim / Assign"
           name="ownership"
           value={currentOwnership}
           onChange={updateFilter}
           options={[
             { value: "ALL", label: "All" },
-            { value: "UNCLAIMED", label: "Unclaimed" },
+            { value: "UNCLAIMED", label: "Available" },
             { value: "MINE", label: "Mine" },
           ]}
         />
@@ -401,9 +401,21 @@ function AttentionRow({
               item.clientName ?? "—"
             )}
             {item.assetName ? ` · ${item.assetName}` : ""}
-            {item.ownerName
-              ? ` · Claimed by: ${item.ownerName}`
-              : " · Unclaimed"}
+            {item.ownershipMode === "NATIVE_ASSIGN"
+              ? item.assignedToName
+                ? ` · Assigned to: ${item.assignedToName}`
+                : " · Unassigned"
+              : [
+                  item.claimedByName
+                    ? `Claimed by: ${item.claimedByName}`
+                    : "Unclaimed",
+                  item.assignedToName
+                    ? `Assigned to: ${item.assignedToName}`
+                    : null,
+                ]
+                  .filter(Boolean)
+                  .map((s) => ` · ${s}`)
+                  .join("")}
           </p>
           {item.acknowledged && item.acknowledgedAt ? (
             <p className="text-xs text-muted">
@@ -460,7 +472,9 @@ function AttentionRow({
                     )
                   }
                 >
-                  Claim
+                  {item.ownershipMode === "NATIVE_ASSIGN"
+                    ? "Assign to me"
+                    : "Claim"}
                 </button>
               ) : item.isMine || canOverrideClaims ? (
                 <button
@@ -475,7 +489,13 @@ function AttentionRow({
                     )
                   }
                 >
-                  {item.isMine ? "Release" : "Release (admin)"}
+                  {item.ownershipMode === "NATIVE_ASSIGN"
+                    ? item.isMine
+                      ? "Unassign"
+                      : "Unassign (admin)"
+                    : item.isMine
+                      ? "Release"
+                      : "Release (admin)"}
                 </button>
               ) : null}
               {!item.isSnoozedForCurrentUser ? (

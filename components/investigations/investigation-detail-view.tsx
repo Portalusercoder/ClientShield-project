@@ -2,24 +2,40 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState, useTransition } from "react";
+import { useMemo, useState, useTransition } from "react";
 import {
   acceptCandidateAction,
   addEventAction,
+  addInvestigationNoteAction,
+  assignInvestigationAction,
+  closeInvestigationAction,
   confirmInvestigationAction,
+  createFindingFromInvestigationAction,
   createIncidentFromInvestigationAction,
+  deleteInvestigationNoteAction,
   dismissInvestigationAction,
+  editInvestigationNoteAction,
+  linkFindingToInvestigationAction,
   linkToIncidentAction,
   manualThreatIntelLookupAction,
   rejectCandidateAction,
   removeEventAction,
+  reopenInvestigationAction,
+  resolveInvestigationAction,
   startInvestigationAction,
+  transitionInvestigationStatusAction,
+  unlinkFindingFromInvestigationAction,
 } from "@/app/(dashboard)/investigations/actions";
 import {
   InvestigationCreatedByBadge,
   InvestigationSeverityBadge,
   InvestigationStatusBadge,
 } from "@/components/investigations/investigation-badges";
+import { PageBreadcrumbs } from "@/components/workflow/page-breadcrumbs";
+import { RelatedObjectsPanel } from "@/components/workflow/related-objects-panel";
+import { WorkflowEmptyState } from "@/components/workflow/workflow-empty-state";
+import { WorkflowQuickActions } from "@/components/workflow/workflow-quick-actions";
+import { WorkflowTrail } from "@/components/workflow/workflow-trail";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -29,6 +45,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { formatDateTime, formatRelativeTime } from "@/lib/utils";
+import { buildWorkflowStages } from "@/lib/workflow/workflow-context";
 import type { InvestigationDetailViewModel } from "@/types/investigations";
 
 type Tab =
@@ -36,9 +53,19 @@ type Tab =
   | "events"
   | "observables"
   | "mitre"
+  | "notes"
+  | "findings"
   | "timeline"
   | "threat-intel"
   | "incidents";
+
+function userLabel(user: {
+  name: string | null;
+  email: string;
+} | null): string {
+  if (!user) return "—";
+  return user.name?.trim() || user.email;
+}
 
 function Field({
   label,
@@ -78,6 +105,8 @@ export function InvestigationDetailView({
       label: `Observables (${investigation.observableCount})`,
     },
     { id: "mitre", label: "MITRE" },
+    { id: "notes", label: `Notes (${investigation.notes.length})` },
+    { id: "findings", label: `Findings (${investigation.findings.length})` },
     { id: "timeline", label: "Timeline" },
     {
       id: "threat-intel",
@@ -109,19 +138,154 @@ export function InvestigationDetailView({
   const closed =
     investigation.status === "DISMISSED" ||
     investigation.status === "CLOSED";
+  const canReopen =
+    investigation.status === "RESOLVED" || investigation.status === "CLOSED";
+  const assignmentHistory = investigation.activities.filter((a) =>
+    ["ASSIGNED", "REASSIGNED", "UNASSIGNED"].includes(a.activityType)
+  );
+
+  const primaryEvent = investigation.events[0] ?? null;
+  const primaryFinding = investigation.findings[0] ?? null;
+  const primaryIncident = investigation.incidents[0] ?? null;
+
+  const workflowStages = useMemo(
+    () =>
+      buildWorkflowStages({
+        current: "investigation",
+        securityEvent: primaryEvent
+          ? {
+              id: primaryEvent.securityEventId,
+              title: primaryEvent.title,
+            }
+          : null,
+        investigation: {
+          id: investigation.id,
+          title: investigation.title,
+        },
+        finding: primaryFinding
+          ? { id: primaryFinding.id, title: primaryFinding.title }
+          : null,
+        incident: primaryIncident
+          ? {
+              id: primaryIncident.incidentId,
+              title: primaryIncident.title,
+            }
+          : null,
+      }),
+    [
+      investigation.id,
+      investigation.title,
+      primaryEvent,
+      primaryFinding,
+      primaryIncident,
+    ]
+  );
+
+  const relatedObjects = useMemo(() => {
+    const items: {
+      id: string;
+      kind: "security-event" | "finding" | "incident" | "asset";
+      label: string;
+      href: string;
+      meta?: string;
+    }[] = [];
+    if (investigation.findingCreateDefaults.assetId) {
+      items.push({
+        id: investigation.findingCreateDefaults.assetId,
+        kind: "asset",
+        label: "Linked asset",
+        href: `/assets/${investigation.findingCreateDefaults.assetId}`,
+        meta: "Asset",
+      });
+    }
+    for (const e of investigation.events.slice(0, 5)) {
+      items.push({
+        id: e.securityEventId,
+        kind: "security-event",
+        label: e.title,
+        href: `/security-events/${e.securityEventId}`,
+        meta: e.severity,
+      });
+    }
+    for (const f of investigation.findings.slice(0, 5)) {
+      items.push({
+        id: f.id,
+        kind: "finding",
+        label: f.title,
+        href: `/vulnerabilities/${f.id}`,
+        meta: f.status,
+      });
+    }
+    for (const i of investigation.incidents.slice(0, 5)) {
+      items.push({
+        id: i.incidentId,
+        kind: "incident",
+        label: i.title,
+        href: `/incidents/${i.incidentId}`,
+        meta: i.status,
+      });
+    }
+    return items;
+  }, [investigation]);
+
+  const quickActions = useMemo(() => {
+    const actions: {
+      id: string;
+      label: string;
+      href: string;
+      available: boolean;
+    }[] = [];
+    if (primaryEvent) {
+      actions.push({
+        id: "open-se",
+        label: "Open Security Event",
+        href: `/security-events/${primaryEvent.securityEventId}`,
+        available: true,
+      });
+    }
+    if (primaryFinding) {
+      actions.push({
+        id: "open-finding",
+        label: "Open Finding",
+        href: `/vulnerabilities/${primaryFinding.id}`,
+        available: true,
+      });
+    }
+    if (primaryIncident) {
+      actions.push({
+        id: "open-incident",
+        label: "Open Incident",
+        href: `/incidents/${primaryIncident.incidentId}`,
+        available: true,
+      });
+    }
+    if (investigation.findingCreateDefaults.assetId) {
+      actions.push({
+        id: "open-asset",
+        label: "Open Asset",
+        href: `/assets/${investigation.findingCreateDefaults.assetId}`,
+        available: true,
+      });
+    }
+    return actions;
+  }, [
+    primaryEvent,
+    primaryFinding,
+    primaryIncident,
+    investigation.findingCreateDefaults.assetId,
+  ]);
 
   return (
     <div className="space-y-6">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div className="space-y-2">
-          <div className="flex flex-wrap items-center gap-2">
-            <Link
-              href="/investigations"
-              className="text-xs text-muted hover:text-accent"
-            >
-              ← Investigations
-            </Link>
-          </div>
+          <PageBreadcrumbs
+            items={[
+              { label: "Investigations", href: "/investigations" },
+              { label: investigation.title.slice(0, 48) },
+            ]}
+          />
+          <WorkflowTrail stages={workflowStages} />
           <h1 className="text-2xl font-semibold text-foreground">
             {investigation.title}
           </h1>
@@ -131,6 +295,9 @@ export function InvestigationDetailView({
             <InvestigationCreatedByBadge
               createdByType={investigation.createdByType}
             />
+            <span className="text-xs text-muted">
+              Assignee: {userLabel(investigation.assignedTo)}
+            </span>
           </div>
         </div>
 
@@ -150,8 +317,48 @@ export function InvestigationDetailView({
                 Start investigation
               </Button>
             )}
+            {(investigation.status === "IN_PROGRESS" ||
+              investigation.status === "INVESTIGATING" ||
+              investigation.status === "CONFIRMED") && (
+              <Button
+                size="sm"
+                variant="secondary"
+                disabled={isPending}
+                onClick={() => {
+                  const fd = new FormData();
+                  fd.set("groupId", investigation.id);
+                  fd.set("toStatus", "PENDING");
+                  runAction(
+                    () => transitionInvestigationStatusAction(fd),
+                    "Marked pending"
+                  );
+                }}
+              >
+                Mark pending
+              </Button>
+            )}
+            {investigation.status !== "RESOLVED" &&
+              investigation.status !== "DISMISSED" &&
+              investigation.status !== "CLOSED" && (
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  disabled={isPending}
+                  onClick={() => {
+                    const fd = new FormData();
+                    fd.set("groupId", investigation.id);
+                    runAction(
+                      () => resolveInvestigationAction(fd),
+                      "Investigation resolved"
+                    );
+                  }}
+                >
+                  Resolve
+                </Button>
+              )}
             {investigation.status !== "CONFIRMED" &&
-              investigation.status !== "LINKED_TO_INCIDENT" && (
+              investigation.status !== "LINKED_TO_INCIDENT" &&
+              investigation.status !== "RESOLVED" && (
                 <Button
                   size="sm"
                   variant="secondary"
@@ -181,6 +388,16 @@ export function InvestigationDetailView({
           {error ?? message}
         </div>
       )}
+
+      <div className="grid gap-4 lg:grid-cols-2">
+        <RelatedObjectsPanel
+          title="Related objects"
+          objects={relatedObjects}
+          emptyTitle="No linked workflow objects"
+          emptyDescription="Link security events, create a finding, or escalate to an incident to continue the spine."
+        />
+        <WorkflowQuickActions actions={quickActions} />
+      </div>
 
       <div className="flex flex-wrap gap-2 border-b border-border pb-2">
         {tabs.map((t) => (
@@ -318,6 +535,210 @@ export function InvestigationDetailView({
                   value={investigation.incidentCount}
                 />
               </dl>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Assignment</CardTitle>
+              <CardDescription>
+                Formal assignee within the same organization (independent of
+                Attention claim)
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <dl className="grid gap-3 sm:grid-cols-2">
+                  <Field
+                    label="Current assignee"
+                    value={userLabel(investigation.assignedTo)}
+                  />
+                  <Field
+                    label="Assigned at"
+                    value={
+                      investigation.assignedAt
+                        ? formatDateTime(investigation.assignedAt)
+                        : "—"
+                    }
+                  />
+                </dl>
+                <p className="text-xs text-muted">
+                  Assignment is formal ownership. Attention claim (if any) is a
+                  separate temporary work lock and is not changed by this form.
+                </p>
+              {canAct && !closed && (
+                <form
+                  className="flex flex-col gap-3 sm:flex-row sm:items-end"
+                  action={(fd) => {
+                    fd.set("groupId", investigation.id);
+                    runAction(
+                      () => assignInvestigationAction(fd),
+                      "Assignment updated"
+                    );
+                  }}
+                >
+                  <label className="flex-1 text-sm">
+                    <span className="mb-1 block text-xs uppercase tracking-wide text-muted">
+                      Assign to
+                    </span>
+                    <select
+                      name="assignedToUserId"
+                      defaultValue={investigation.assignedToUserId ?? ""}
+                      className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
+                    >
+                      <option value="">Unassigned</option>
+                      {investigation.orgUsers.map((u) => (
+                        <option key={u.id} value={u.id}>
+                          {userLabel(u)}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <Button type="submit" size="sm" disabled={isPending}>
+                    Save assignment
+                  </Button>
+                </form>
+              )}
+              {assignmentHistory.length > 0 && (
+                <div>
+                  <p className="mb-2 text-xs uppercase tracking-wide text-muted">
+                    Assignment history
+                  </p>
+                  <ul className="space-y-2">
+                    {assignmentHistory.slice(0, 8).map((a) => (
+                      <li
+                        key={a.id}
+                        className="rounded border border-border px-3 py-2 text-xs"
+                      >
+                        <div className="font-medium text-foreground">
+                          {a.message}
+                        </div>
+                        <div className="mt-1 text-muted">
+                          {formatDateTime(a.createdAt)}
+                          {a.actorName || a.actorEmail
+                            ? ` · ${a.actorName || a.actorEmail}`
+                            : ""}
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Closure</CardTitle>
+              <CardDescription>
+                Resolve, close, or reopen with full history preserved
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <dl className="grid gap-3 sm:grid-cols-2">
+                <Field
+                  label="Resolution summary"
+                  value={investigation.resolutionSummary || "—"}
+                />
+                <Field
+                  label="Closed at"
+                  value={
+                    investigation.closedAt
+                      ? formatDateTime(investigation.closedAt)
+                      : "—"
+                  }
+                />
+                <Field
+                  label="Closed by"
+                  value={userLabel(investigation.closedBy)}
+                />
+                <Field
+                  label="Last reopened"
+                  value={
+                    investigation.reopenedAt
+                      ? formatDateTime(investigation.reopenedAt)
+                      : "—"
+                  }
+                />
+              </dl>
+              {investigation.lastReopenReason && (
+                <p className="text-sm text-muted">
+                  Reopen reason: {investigation.lastReopenReason}
+                </p>
+              )}
+              {canAct &&
+                !closed &&
+                investigation.status !== "RESOLVED" && (
+                  <form
+                    className="space-y-3"
+                    action={(fd) => {
+                      fd.set("groupId", investigation.id);
+                      runAction(
+                        () => resolveInvestigationAction(fd),
+                        "Investigation resolved"
+                      );
+                    }}
+                  >
+                    <textarea
+                      name="resolutionSummary"
+                      rows={2}
+                      placeholder="Optional resolution summary"
+                      defaultValue={investigation.resolutionSummary ?? ""}
+                      className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
+                    />
+                    <Button type="submit" size="sm" disabled={isPending}>
+                      Mark resolved
+                    </Button>
+                  </form>
+                )}
+              {canAct &&
+                (investigation.status === "RESOLVED" ||
+                  investigation.status === "LINKED_TO_INCIDENT") && (
+                  <form
+                    className="space-y-3"
+                    action={(fd) => {
+                      fd.set("groupId", investigation.id);
+                      runAction(
+                        () => closeInvestigationAction(fd),
+                        "Investigation closed"
+                      );
+                    }}
+                  >
+                    <textarea
+                      name="resolutionSummary"
+                      required
+                      rows={3}
+                      placeholder="Resolution summary (required to close)"
+                      defaultValue={investigation.resolutionSummary ?? ""}
+                      className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
+                    />
+                    <Button type="submit" size="sm" disabled={isPending}>
+                      Close investigation
+                    </Button>
+                  </form>
+                )}
+              {canAct && canReopen && (
+                <form
+                  className="space-y-3"
+                  action={(fd) => {
+                    fd.set("groupId", investigation.id);
+                    runAction(
+                      () => reopenInvestigationAction(fd),
+                      "Investigation reopened"
+                    );
+                  }}
+                >
+                  <textarea
+                    name="reason"
+                    required
+                    rows={2}
+                    placeholder="Reason for reopen"
+                    className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
+                  />
+                  <Button type="submit" size="sm" variant="secondary" disabled={isPending}>
+                    Reopen investigation
+                  </Button>
+                </form>
+              )}
             </CardContent>
           </Card>
 
@@ -674,6 +1095,114 @@ export function InvestigationDetailView({
         </Card>
       )}
 
+      {tab === "notes" && (
+        <div className="space-y-4">
+          {canAct && !closed && (
+            <Card>
+              <CardHeader>
+                <CardTitle>Add note</CardTitle>
+                <CardDescription>Analyst collaboration notes</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <form
+                  className="space-y-3"
+                  action={(fd) => {
+                    fd.set("groupId", investigation.id);
+                    runAction(
+                      () => addInvestigationNoteAction(fd),
+                      "Note added"
+                    );
+                  }}
+                >
+                  <textarea
+                    name="content"
+                    required
+                    rows={3}
+                    placeholder="Write an analyst note…"
+                    className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
+                  />
+                  <Button type="submit" size="sm" disabled={isPending}>
+                    Add note
+                  </Button>
+                </form>
+              </CardContent>
+            </Card>
+          )}
+          {investigation.notes.length === 0 ? (
+            <Card>
+              <CardContent className="py-8 text-sm text-muted">
+                No notes yet.
+              </CardContent>
+            </Card>
+          ) : (
+            investigation.notes.map((note) => (
+              <Card key={note.id}>
+                <CardHeader>
+                  <CardTitle className="text-base">
+                    {note.authorName || note.authorEmail || "Analyst"}
+                  </CardTitle>
+                  <CardDescription>
+                    {formatDateTime(note.createdAt)}
+                    {note.editedAt
+                      ? ` · edited ${formatDateTime(note.editedAt)}`
+                      : ""}
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  {canAct && !closed ? (
+                    <form
+                      className="space-y-3"
+                      action={(fd) => {
+                        fd.set("groupId", investigation.id);
+                        fd.set("noteId", note.id);
+                        runAction(
+                          () => editInvestigationNoteAction(fd),
+                          "Note updated"
+                        );
+                      }}
+                    >
+                      <textarea
+                        name="content"
+                        required
+                        rows={3}
+                        defaultValue={note.content}
+                        className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
+                      />
+                      <div className="flex flex-wrap gap-2">
+                        <Button type="submit" size="sm" disabled={isPending}>
+                          Save edit
+                        </Button>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="danger"
+                          disabled={isPending}
+                          onClick={() => {
+                            const fd = new FormData();
+                            fd.set("groupId", investigation.id);
+                            fd.set("noteId", note.id);
+                            runAction(
+                              () => deleteInvestigationNoteAction(fd),
+                              "Note deleted"
+                            );
+                          }}
+                        >
+                          Delete
+                        </Button>
+                      </div>
+                    </form>
+                  ) : (
+                    <p className="whitespace-pre-wrap text-sm text-foreground">
+                      {note.content}
+                    </p>
+                  )}
+                </CardContent>
+              </Card>
+            ))
+          )}
+        </div>
+      )}
+
       {tab === "timeline" && (
         <Card>
           <CardHeader>
@@ -697,7 +1226,13 @@ export function InvestigationDetailView({
                 at: a.createdAt,
                 kind: "activity" as const,
                 title: a.message,
-                detail: a.activityType.replaceAll("_", " "),
+                detail: [
+                  a.activityType.replaceAll("_", " "),
+                  a.actorName || a.actorEmail || null,
+                  a.note ? a.note.slice(0, 120) : null,
+                ]
+                  .filter(Boolean)
+                  .join(" · "),
                 href: null as string | null,
               }));
               const entries = [...eventEntries, ...activityEntries].sort(
@@ -808,12 +1343,234 @@ export function InvestigationDetailView({
         </div>
       )}
 
+      {tab === "findings" && (
+        <div className="space-y-4">
+          <p className="text-xs text-muted">
+            Findings record what was concluded from this investigation. Closing
+            the investigation does not change Finding status; resolving a Finding
+            does not change the investigation.
+          </p>
+          {investigation.findings.length === 0 ? (
+            <WorkflowEmptyState
+              title="No Findings yet"
+              why="An Investigation concludes by recording Findings — nothing has been created or linked."
+              nextAction="Create a Finding from this investigation or link an existing one below."
+              actionLabel={canAct && !closed ? "Scroll to create" : null}
+              actionHref={canAct && !closed ? "#create-finding" : null}
+            />
+          ) : (
+            <div className="overflow-x-auto rounded-md border border-border">
+              <table className="w-full min-w-[640px] text-left text-sm">
+                <thead className="border-b border-border bg-surface/60 text-xs uppercase tracking-wide text-muted">
+                  <tr>
+                    <th className="px-4 py-3 font-medium">Title</th>
+                    <th className="px-4 py-3 font-medium">Severity</th>
+                    <th className="px-4 py-3 font-medium">Status</th>
+                    <th className="px-4 py-3 font-medium">Asset</th>
+                    <th className="px-4 py-3 font-medium">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  {investigation.findings.map((f) => (
+                    <tr key={f.id} className="hover:bg-surface/40">
+                      <td className="px-4 py-3">
+                        <Link
+                          href={`/vulnerabilities/${f.id}`}
+                          className="font-medium text-foreground hover:text-accent"
+                        >
+                          {f.title}
+                        </Link>
+                      </td>
+                      <td className="px-4 py-3 text-muted">{f.severity}</td>
+                      <td className="px-4 py-3 text-muted">{f.status}</td>
+                      <td className="px-4 py-3 text-muted">
+                        {f.assetName ?? "—"}
+                      </td>
+                      <td className="px-4 py-3">
+                        {canAct ? (
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="secondary"
+                            disabled={isPending}
+                            onClick={() => {
+                              const fd = new FormData();
+                              fd.set("groupId", investigation.id);
+                              fd.set("findingId", f.id);
+                              runAction(
+                                () => unlinkFindingFromInvestigationAction(fd),
+                                "Finding unlinked"
+                              );
+                            }}
+                          >
+                            Unlink
+                          </Button>
+                        ) : null}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {canAct && !closed && (
+            <div className="grid gap-4 lg:grid-cols-2">
+              <Card>
+                <CardHeader>
+                <div id="create-finding">
+                  <CardTitle>Create Finding</CardTitle>
+                </div>
+                  <CardDescription>
+                    Analyst-confirmed only. Severity may inherit once; statuses
+                    stay independent afterward.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <form
+                    className="space-y-3"
+                    action={(fd) => {
+                      fd.set("groupId", investigation.id);
+                      runAction(async () => {
+                        const result =
+                          await createFindingFromInvestigationAction(fd);
+                        if (result.success && result.data?.findingId) {
+                          router.push(
+                            `/vulnerabilities/${result.data.findingId}`
+                          );
+                        }
+                        return result;
+                      }, "Finding created");
+                    }}
+                  >
+                    <input
+                      name="title"
+                      required
+                      defaultValue={investigation.findingCreateDefaults.title}
+                      className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
+                      placeholder="Finding title"
+                    />
+                    <textarea
+                      name="description"
+                      rows={4}
+                      defaultValue={
+                        investigation.findingCreateDefaults.description
+                      }
+                      className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
+                      placeholder="Description"
+                    />
+                    <select
+                      name="severity"
+                      defaultValue={
+                        investigation.findingCreateDefaults.severity
+                      }
+                      className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
+                    >
+                      {["CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO"].map(
+                        (s) => (
+                          <option key={s} value={s}>
+                            {s}
+                          </option>
+                        )
+                      )}
+                    </select>
+                    <select
+                      name="assetId"
+                      required
+                      defaultValue={
+                        investigation.findingCreateDefaults.assetId ?? ""
+                      }
+                      className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
+                    >
+                      <option value="" disabled>
+                        Select asset…
+                      </option>
+                      {investigation.orgAssets.map((a) => (
+                        <option key={a.id} value={a.id}>
+                          {a.name}
+                        </option>
+                      ))}
+                    </select>
+                    <label className="flex items-center gap-2 text-xs text-muted">
+                      <input
+                        type="checkbox"
+                        name="inheritAssignee"
+                        value="true"
+                        defaultChecked={Boolean(
+                          investigation.findingCreateDefaults.assignedToUserId
+                        )}
+                      />
+                      Assign to investigation assignee (optional)
+                    </label>
+                    <Button type="submit" size="sm" disabled={isPending}>
+                      Create Finding
+                    </Button>
+                  </form>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle>Link existing Finding</CardTitle>
+                  <CardDescription>
+                    Sets this investigation as the Finding&apos;s primary
+                    investigation.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  {investigation.linkableFindings.length === 0 ? (
+                    <p className="text-sm text-muted">
+                      No linkable findings in scope.
+                    </p>
+                  ) : (
+                    <form
+                      className="space-y-3"
+                      action={(fd) => {
+                        fd.set("groupId", investigation.id);
+                        runAction(
+                          () => linkFindingToInvestigationAction(fd),
+                          "Finding linked"
+                        );
+                      }}
+                    >
+                      <select
+                        name="findingId"
+                        required
+                        defaultValue=""
+                        className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
+                      >
+                        <option value="" disabled>
+                          Select finding…
+                        </option>
+                        {investigation.linkableFindings.map((f) => (
+                          <option key={f.id} value={f.id}>
+                            {f.title} ({f.severity}/{f.status})
+                            {f.alreadyLinkedElsewhere
+                              ? " — linked elsewhere"
+                              : ""}
+                          </option>
+                        ))}
+                      </select>
+                      <Button type="submit" size="sm" disabled={isPending}>
+                        Link Finding
+                      </Button>
+                    </form>
+                  )}
+                </CardContent>
+              </Card>
+            </div>
+          )}
+        </div>
+      )}
+
       {tab === "incidents" && (
         <div className="space-y-4">
           {investigation.incidents.length === 0 ? (
-            <div className="rounded-md border border-border px-4 py-6 text-center text-sm text-muted">
-              No incidents linked to this investigation yet.
-            </div>
+            <WorkflowEmptyState
+              title="No Incident yet"
+              why="Incidents capture response cases escalated from investigations."
+              nextAction="Create or link an Incident when confirmed impact requires response."
+            />
           ) : (
             <div className="overflow-x-auto rounded-md border border-border">
               <table className="w-full min-w-[640px] text-left text-sm">

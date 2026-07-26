@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useState, useTransition, useMemo } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { archiveAssetAction } from "@/app/(dashboard)/assets/actions";
@@ -27,6 +27,9 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
+import { PageBreadcrumbs } from "@/components/workflow/page-breadcrumbs";
+import { RelatedObjectsPanel } from "@/components/workflow/related-objects-panel";
+import { WorkflowQuickActions } from "@/components/workflow/workflow-quick-actions";
 import { formatDate } from "@/lib/utils";
 import type { AssetClientOption, AssetDetail } from "@/types/asset";
 import type {
@@ -182,10 +185,99 @@ export function AssetDetailView({
     });
   }
 
+  const relatedObjects = useMemo(() => {
+    const items: {
+      id: string;
+      kind: "finding" | "incident" | "security-event" | "endpoint";
+      label: string;
+      href: string;
+      meta?: string;
+    }[] = [];
+    for (const f of findings.slice(0, 3)) {
+      items.push({
+        id: f.id,
+        kind: "finding",
+        label: f.title,
+        href: `/vulnerabilities/${f.id}`,
+        meta: f.severity,
+      });
+    }
+    for (const i of incidents.slice(0, 3)) {
+      items.push({
+        id: i.id,
+        kind: "incident",
+        label: i.title,
+        href: `/incidents/${i.id}`,
+        meta: i.status,
+      });
+    }
+    for (const e of securityEvents.slice(0, 3)) {
+      items.push({
+        id: e.id,
+        kind: "security-event",
+        label: e.title,
+        href: `/security-events/${e.id}`,
+        meta: e.status,
+      });
+    }
+    if (isEndpoint) {
+      items.push({
+        id: `${asset.id}-enrollment`,
+        kind: "endpoint",
+        label: "Endpoint enrollment",
+        href: `/assets/${asset.id}/enrollment`,
+        meta: "Endpoint",
+      });
+    }
+    return items;
+  }, [findings, incidents, securityEvents, isEndpoint, asset.id]);
+
+  const quickActions = useMemo(() => {
+    const actions: {
+      id: string;
+      label: string;
+      href: string;
+      available: boolean;
+    }[] = [
+      {
+        id: "client",
+        label: "Open Client",
+        href: `/clients/${asset.clientId}`,
+        available: Boolean(asset.clientId),
+      },
+    ];
+    if (isEndpoint) {
+      actions.push({
+        id: "enrollment",
+        label: "Open Enrollment",
+        href: `/assets/${asset.id}/enrollment`,
+        available: true,
+      });
+    }
+    if (findings[0]) {
+      actions.push({
+        id: "finding",
+        label: "Open Finding",
+        href: `/vulnerabilities/${findings[0].id}`,
+        available: true,
+      });
+    }
+    return actions;
+  }, [asset.clientId, asset.id, isEndpoint, findings]);
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-        <div>
+        <div className="space-y-2">
+          <PageBreadcrumbs
+            items={[
+              { label: "Assets", href: "/assets" },
+              ...(asset.clientId
+                ? [{ label: "Client", href: `/clients/${asset.clientId}` }]
+                : []),
+              { label: asset.name },
+            ]}
+          />
           <div className="flex flex-wrap items-center gap-3">
             <h1 className="text-2xl font-semibold text-foreground">
               {asset.name}
@@ -230,6 +322,16 @@ export function AssetDetailView({
             </Button>
           )}
         </div>
+      </div>
+
+      <div className="grid gap-4 lg:grid-cols-2">
+        <RelatedObjectsPanel
+          title="Related objects"
+          objects={relatedObjects}
+          emptyTitle="No related findings or events"
+          emptyDescription="Security Events, Findings, and Incidents for this asset will appear here once detected."
+        />
+        <WorkflowQuickActions actions={quickActions} />
       </div>
 
       <nav className="flex gap-1 overflow-x-auto border-b border-border">

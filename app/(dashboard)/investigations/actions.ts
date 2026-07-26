@@ -5,15 +5,41 @@ import { assertMinimumRole, requireSession } from "@/lib/auth";
 import {
   acceptCorrelationCandidateSchema,
   addInvestigationEventSchema,
+  addInvestigationNoteSchema,
+  assignInvestigationSchema,
+  closeInvestigationSchema,
+  createFindingFromInvestigationSchema,
   createIncidentFromInvestigationSchema,
   createInvestigationSchema,
+  deleteInvestigationNoteSchema,
   dismissInvestigationSchema,
+  editInvestigationNoteSchema,
+  linkFindingToInvestigationSchema,
   linkInvestigationToIncidentSchema,
   rejectCorrelationCandidateSchema,
   removeInvestigationEventSchema,
+  reopenInvestigationSchema,
+  resolveInvestigationSchema,
   threatIntelLookupSchema,
+  transitionInvestigationStatusSchema,
+  unlinkFindingFromInvestigationSchema,
 } from "@/lib/validations/investigations";
 import { rejectCandidate } from "@/services/investigations/correlation.service";
+import {
+  createFindingFromInvestigation,
+  linkFindingToInvestigation,
+  unlinkFindingFromInvestigation,
+} from "@/services/investigations/investigation-finding.service";
+import {
+  addInvestigationNote,
+  assignInvestigation,
+  closeInvestigation,
+  editInvestigationNote,
+  reopenInvestigation,
+  resolveInvestigation,
+  softDeleteInvestigationNote,
+  transitionInvestigationStatus,
+} from "@/services/investigations/investigation-lifecycle.service";
 import {
   acceptCandidateIntoInvestigation,
   addEvent,
@@ -408,6 +434,379 @@ export async function manualThreatIntelLookupAction(
     else revalidatePath("/investigations");
 
     return { success: true, data: { id: result.id } };
+  } catch (error) {
+    return toActionError(error);
+  }
+}
+
+export async function assignInvestigationAction(
+  formData: FormData
+): Promise<ActionResult> {
+  try {
+    const session = await requireSession();
+    assertMinimumRole(session, "ANALYST");
+
+    const rawAssignee = emptyToNull(formData.get("assignedToUserId"));
+    const parsed = assignInvestigationSchema.safeParse({
+      groupId: formData.get("groupId"),
+      assignedToUserId: rawAssignee,
+    });
+    if (!parsed.success) {
+      return {
+        success: false,
+        error: parsed.error.errors[0]?.message ?? "Validation failed",
+      };
+    }
+
+    await assignInvestigation({
+      organizationId: session.organizationId,
+      actorId: session.userId,
+      groupId: parsed.data.groupId,
+      assignedToUserId: parsed.data.assignedToUserId,
+    });
+
+    revalidateInvestigationPaths(parsed.data.groupId);
+    return { success: true, data: undefined };
+  } catch (error) {
+    return toActionError(error);
+  }
+}
+
+export async function transitionInvestigationStatusAction(
+  formData: FormData
+): Promise<ActionResult> {
+  try {
+    const session = await requireSession();
+    assertMinimumRole(session, "ANALYST");
+
+    const parsed = transitionInvestigationStatusSchema.safeParse({
+      groupId: formData.get("groupId"),
+      toStatus: formData.get("toStatus"),
+      note: emptyToNull(formData.get("note")),
+    });
+    if (!parsed.success) {
+      return {
+        success: false,
+        error: parsed.error.errors[0]?.message ?? "Validation failed",
+      };
+    }
+
+    await transitionInvestigationStatus({
+      organizationId: session.organizationId,
+      actorId: session.userId,
+      groupId: parsed.data.groupId,
+      toStatus: parsed.data.toStatus,
+      note: parsed.data.note,
+    });
+
+    revalidateInvestigationPaths(parsed.data.groupId);
+    return { success: true, data: undefined };
+  } catch (error) {
+    return toActionError(error);
+  }
+}
+
+export async function resolveInvestigationAction(
+  formData: FormData
+): Promise<ActionResult> {
+  try {
+    const session = await requireSession();
+    assertMinimumRole(session, "ANALYST");
+
+    const parsed = resolveInvestigationSchema.safeParse({
+      groupId: formData.get("groupId"),
+      resolutionSummary: emptyToNull(formData.get("resolutionSummary")),
+    });
+    if (!parsed.success) {
+      return {
+        success: false,
+        error: parsed.error.errors[0]?.message ?? "Validation failed",
+      };
+    }
+
+    await resolveInvestigation({
+      organizationId: session.organizationId,
+      actorId: session.userId,
+      groupId: parsed.data.groupId,
+      resolutionSummary: parsed.data.resolutionSummary,
+    });
+
+    revalidateInvestigationPaths(parsed.data.groupId);
+    return { success: true, data: undefined };
+  } catch (error) {
+    return toActionError(error);
+  }
+}
+
+export async function closeInvestigationAction(
+  formData: FormData
+): Promise<ActionResult> {
+  try {
+    const session = await requireSession();
+    assertMinimumRole(session, "ANALYST");
+
+    const parsed = closeInvestigationSchema.safeParse({
+      groupId: formData.get("groupId"),
+      resolutionSummary: formData.get("resolutionSummary"),
+    });
+    if (!parsed.success) {
+      return {
+        success: false,
+        error: parsed.error.errors[0]?.message ?? "Validation failed",
+      };
+    }
+
+    await closeInvestigation({
+      organizationId: session.organizationId,
+      actorId: session.userId,
+      groupId: parsed.data.groupId,
+      resolutionSummary: parsed.data.resolutionSummary,
+    });
+
+    revalidateInvestigationPaths(parsed.data.groupId);
+    return { success: true, data: undefined };
+  } catch (error) {
+    return toActionError(error);
+  }
+}
+
+export async function reopenInvestigationAction(
+  formData: FormData
+): Promise<ActionResult> {
+  try {
+    const session = await requireSession();
+    assertMinimumRole(session, "ANALYST");
+
+    const parsed = reopenInvestigationSchema.safeParse({
+      groupId: formData.get("groupId"),
+      reason: formData.get("reason"),
+    });
+    if (!parsed.success) {
+      return {
+        success: false,
+        error: parsed.error.errors[0]?.message ?? "Validation failed",
+      };
+    }
+
+    await reopenInvestigation({
+      organizationId: session.organizationId,
+      actorId: session.userId,
+      groupId: parsed.data.groupId,
+      reason: parsed.data.reason,
+    });
+
+    revalidateInvestigationPaths(parsed.data.groupId);
+    return { success: true, data: undefined };
+  } catch (error) {
+    return toActionError(error);
+  }
+}
+
+export async function addInvestigationNoteAction(
+  formData: FormData
+): Promise<ActionResult<{ id: string }>> {
+  try {
+    const session = await requireSession();
+    assertMinimumRole(session, "ANALYST");
+
+    const parsed = addInvestigationNoteSchema.safeParse({
+      groupId: formData.get("groupId"),
+      content: formData.get("content"),
+    });
+    if (!parsed.success) {
+      return {
+        success: false,
+        error: parsed.error.errors[0]?.message ?? "Validation failed",
+      };
+    }
+
+    const note = await addInvestigationNote({
+      organizationId: session.organizationId,
+      actorId: session.userId,
+      groupId: parsed.data.groupId,
+      content: parsed.data.content,
+    });
+
+    revalidateInvestigationPaths(parsed.data.groupId);
+    return { success: true, data: note };
+  } catch (error) {
+    return toActionError(error);
+  }
+}
+
+export async function editInvestigationNoteAction(
+  formData: FormData
+): Promise<ActionResult> {
+  try {
+    const session = await requireSession();
+    assertMinimumRole(session, "ANALYST");
+
+    const parsed = editInvestigationNoteSchema.safeParse({
+      groupId: formData.get("groupId"),
+      noteId: formData.get("noteId"),
+      content: formData.get("content"),
+    });
+    if (!parsed.success) {
+      return {
+        success: false,
+        error: parsed.error.errors[0]?.message ?? "Validation failed",
+      };
+    }
+
+    await editInvestigationNote({
+      organizationId: session.organizationId,
+      actorId: session.userId,
+      groupId: parsed.data.groupId,
+      noteId: parsed.data.noteId,
+      content: parsed.data.content,
+    });
+
+    revalidateInvestigationPaths(parsed.data.groupId);
+    return { success: true, data: undefined };
+  } catch (error) {
+    return toActionError(error);
+  }
+}
+
+export async function deleteInvestigationNoteAction(
+  formData: FormData
+): Promise<ActionResult> {
+  try {
+    const session = await requireSession();
+    assertMinimumRole(session, "ANALYST");
+
+    const parsed = deleteInvestigationNoteSchema.safeParse({
+      groupId: formData.get("groupId"),
+      noteId: formData.get("noteId"),
+    });
+    if (!parsed.success) {
+      return {
+        success: false,
+        error: parsed.error.errors[0]?.message ?? "Validation failed",
+      };
+    }
+
+    await softDeleteInvestigationNote({
+      organizationId: session.organizationId,
+      actorId: session.userId,
+      groupId: parsed.data.groupId,
+      noteId: parsed.data.noteId,
+    });
+
+    revalidateInvestigationPaths(parsed.data.groupId);
+    return { success: true, data: undefined };
+  } catch (error) {
+    return toActionError(error);
+  }
+}
+
+export async function createFindingFromInvestigationAction(
+  formData: FormData
+): Promise<ActionResult<{ findingId: string }>> {
+  try {
+    const session = await requireSession();
+    assertMinimumRole(session, "ANALYST");
+
+    const inheritRaw = formData.get("inheritAssignee");
+    const parsed = createFindingFromInvestigationSchema.safeParse({
+      groupId: formData.get("groupId"),
+      title: formData.get("title"),
+      description: emptyToNull(formData.get("description")),
+      severity: emptyToNull(formData.get("severity")) ?? undefined,
+      assetId: formData.get("assetId"),
+      assignedToUserId: emptyToNull(formData.get("assignedToUserId")),
+      inheritAssignee:
+        inheritRaw === "true" || inheritRaw === "on" ? true : undefined,
+    });
+    if (!parsed.success) {
+      return {
+        success: false,
+        error: parsed.error.errors[0]?.message ?? "Validation failed",
+      };
+    }
+
+    const result = await createFindingFromInvestigation({
+      organizationId: session.organizationId,
+      actorId: session.userId,
+      groupId: parsed.data.groupId,
+      title: parsed.data.title,
+      description: parsed.data.description,
+      severity: parsed.data.severity,
+      assetId: parsed.data.assetId,
+      assignedToUserId: parsed.data.assignedToUserId,
+      inheritAssignee: parsed.data.inheritAssignee,
+    });
+
+    revalidateInvestigationPaths(parsed.data.groupId);
+    revalidatePath(`/vulnerabilities/${result.findingId}`);
+    revalidatePath("/vulnerabilities");
+    return { success: true, data: result };
+  } catch (error) {
+    return toActionError(error);
+  }
+}
+
+export async function linkFindingToInvestigationAction(
+  formData: FormData
+): Promise<ActionResult> {
+  try {
+    const session = await requireSession();
+    assertMinimumRole(session, "ANALYST");
+
+    const parsed = linkFindingToInvestigationSchema.safeParse({
+      groupId: formData.get("groupId"),
+      findingId: formData.get("findingId"),
+    });
+    if (!parsed.success) {
+      return {
+        success: false,
+        error: parsed.error.errors[0]?.message ?? "Validation failed",
+      };
+    }
+
+    await linkFindingToInvestigation({
+      organizationId: session.organizationId,
+      actorId: session.userId,
+      groupId: parsed.data.groupId,
+      findingId: parsed.data.findingId,
+    });
+
+    revalidateInvestigationPaths(parsed.data.groupId);
+    revalidatePath(`/vulnerabilities/${parsed.data.findingId}`);
+    return { success: true, data: undefined };
+  } catch (error) {
+    return toActionError(error);
+  }
+}
+
+export async function unlinkFindingFromInvestigationAction(
+  formData: FormData
+): Promise<ActionResult> {
+  try {
+    const session = await requireSession();
+    assertMinimumRole(session, "ANALYST");
+
+    const parsed = unlinkFindingFromInvestigationSchema.safeParse({
+      groupId: formData.get("groupId"),
+      findingId: formData.get("findingId"),
+    });
+    if (!parsed.success) {
+      return {
+        success: false,
+        error: parsed.error.errors[0]?.message ?? "Validation failed",
+      };
+    }
+
+    await unlinkFindingFromInvestigation({
+      organizationId: session.organizationId,
+      actorId: session.userId,
+      groupId: parsed.data.groupId,
+      findingId: parsed.data.findingId,
+    });
+
+    revalidateInvestigationPaths(parsed.data.groupId);
+    revalidatePath(`/vulnerabilities/${parsed.data.findingId}`);
+    return { success: true, data: undefined };
   } catch (error) {
     return toActionError(error);
   }

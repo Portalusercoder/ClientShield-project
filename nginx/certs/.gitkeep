@@ -1,0 +1,2 @@
+# Placeholder — replace with real TLS material (see README.md in this directory).
+# This empty file keeps the directory in git; nginx expects fullchain.pem + privkey.pem.

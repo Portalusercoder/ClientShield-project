@@ -15,6 +15,7 @@ import type {
   SecurityEventStatus,
 } from "@prisma/client";
 import { prisma } from "@/lib/db";
+import { attentionOwnershipMode } from "@/lib/ownership/model";
 import { buildEligibilityGeneration } from "@/services/attention/eligibility-generation";
 import { OPEN_INCIDENT_STATUSES } from "@/services/incidents/status-transitions";
 import {
@@ -45,6 +46,8 @@ const FINDING_SEVERITIES = ["CRITICAL", "HIGH"] as const;
 const INV_STATUSES: InvestigationStatus[] = [
   "OPEN",
   "INVESTIGATING",
+  "IN_PROGRESS",
+  "PENDING",
   "CONFIRMED",
 ];
 const INV_SEVERITIES: IncidentSeverity[] = ["CRITICAL", "HIGH"];
@@ -73,19 +76,28 @@ function overlayDefaults(input: {
   sourceType: AttentionSourceType;
   sourceId: string;
   anchorAt: Date;
-  assigneeId: string | null;
-  assigneeName: string | null;
+  assignedToUserId: string | null;
+  assignedToName: string | null;
 }): Pick<
   AttentionItem,
   | "eligibilityGeneration"
+  | "ownershipMode"
   | "acknowledged"
   | "acknowledgedAt"
   | "acknowledgedByUserId"
   | "acknowledgedByName"
+  | "claimedByUserId"
+  | "claimedByName"
+  | "claimedAt"
+  | "isClaimed"
+  | "assignedToUserId"
+  | "assignedToName"
+  | "isAssigned"
   | "ownerUserId"
   | "ownerName"
-  | "isClaimed"
   | "isMine"
+  | "assigneeId"
+  | "assigneeName"
   | "isSnoozedForCurrentUser"
   | "snoozedUntil"
   | "slaState"
@@ -95,20 +107,36 @@ function overlayDefaults(input: {
   | "slaRemainingMinutes"
   | "slaDueAt"
 > {
+  const mode = attentionOwnershipMode(input.sourceType);
+  const isAssigned = Boolean(input.assignedToUserId);
+  // Before overlay enrich: Finding/Incident treat assign as claim; SE/Inv start unclaimed.
+  const isClaimed = mode === "NATIVE_ASSIGN" ? isAssigned : false;
+  const ownerUserId =
+    mode === "NATIVE_ASSIGN" ? input.assignedToUserId : null;
+  const ownerName = mode === "NATIVE_ASSIGN" ? input.assignedToName : null;
   return {
     eligibilityGeneration: buildEligibilityGeneration({
       sourceType: input.sourceType,
       sourceId: input.sourceId,
       anchorAt: input.anchorAt,
     }),
+    ownershipMode: mode,
     acknowledged: false,
     acknowledgedAt: null,
     acknowledgedByUserId: null,
     acknowledgedByName: null,
-    ownerUserId: input.assigneeId,
-    ownerName: input.assigneeName,
-    isClaimed: Boolean(input.assigneeId),
+    claimedByUserId: null,
+    claimedByName: null,
+    claimedAt: null,
+    isClaimed,
+    assignedToUserId: input.assignedToUserId,
+    assignedToName: input.assignedToName,
+    isAssigned,
+    ownerUserId,
+    ownerName,
     isMine: false,
+    assigneeId: ownerUserId,
+    assigneeName: ownerName,
     isSnoozedForCurrentUser: false,
     snoozedUntil: null,
     slaState: "NO_POLICY",
@@ -237,15 +265,13 @@ async function fetchSecurityEventItems(
       waitingSince: row.firstSeenAt,
       dueDate: null,
       overdue: false,
-      assigneeId: null,
-      assigneeName: null,
       href: `/security-events/${row.id}`,
       ...overlayDefaults({
         sourceType: "SECURITY_EVENT",
         sourceId: row.id,
         anchorAt: row.firstSeenAt,
-        assigneeId: null,
-        assigneeName: null,
+        assignedToUserId: null,
+        assignedToName: null,
       }),
     };
   });
@@ -355,15 +381,13 @@ async function fetchFindingItems(
       waitingSince: row.firstDetectedAt,
       dueDate: row.dueDate,
       overdue,
-      assigneeId: row.assignedToUserId,
-      assigneeName: row.assignedTo?.name ?? null,
       href: `/vulnerabilities/${row.id}`,
       ...overlayDefaults({
         sourceType: "FINDING",
         sourceId: row.id,
         anchorAt: row.firstDetectedAt,
-        assigneeId: row.assignedToUserId,
-        assigneeName: row.assignedTo?.name ?? null,
+        assignedToUserId: row.assignedToUserId,
+        assignedToName: row.assignedTo?.name ?? null,
       }),
     });
   }
@@ -422,6 +446,8 @@ async function fetchInvestigationItems(
       status: true,
       createdByType: true,
       createdAt: true,
+      assignedToUserId: true,
+      assignedTo: { select: { id: true, name: true } },
     },
   });
 
@@ -456,6 +482,7 @@ async function fetchInvestigationItems(
         ? "System-suggested investigation"
         : "Analyst-created investigation",
       `Status ${row.status}`,
+      ...(row.assignedToUserId ? [] : ["Unassigned"]),
     ];
     return {
       key: itemKey("INVESTIGATION", row.id),
@@ -480,15 +507,13 @@ async function fetchInvestigationItems(
       waitingSince: row.createdAt,
       dueDate: null,
       overdue: false,
-      assigneeId: null,
-      assigneeName: null,
       href: `/investigations/${row.id}`,
       ...overlayDefaults({
         sourceType: "INVESTIGATION",
         sourceId: row.id,
         anchorAt: row.createdAt,
-        assigneeId: null,
-        assigneeName: null,
+        assignedToUserId: row.assignedToUserId,
+        assignedToName: row.assignedTo?.name ?? null,
       }),
     };
   });
@@ -582,15 +607,13 @@ async function fetchIncidentItems(
       waitingSince: row.detectedAt,
       dueDate: null,
       overdue: false,
-      assigneeId: row.assignedToUserId,
-      assigneeName: row.assignedTo?.name ?? null,
       href: `/incidents/${row.id}`,
       ...overlayDefaults({
         sourceType: "INCIDENT",
         sourceId: row.id,
         anchorAt: row.detectedAt,
-        assigneeId: row.assignedToUserId,
-        assigneeName: row.assignedTo?.name ?? null,
+        assignedToUserId: row.assignedToUserId,
+        assignedToName: row.assignedTo?.name ?? null,
       }),
     };
   });
@@ -708,17 +731,26 @@ async function enrichWithOverlayState(
     const k = stateKey(item.sourceType, item.sourceId, item.eligibilityGeneration);
     const state = stateByKey.get(k);
     const snooze = snoozeByKey.get(k);
+    const mode = item.ownershipMode;
 
-    // Finding/Incident: native assignee is authoritative for ownership
-    const usesNativeOwner =
-      item.sourceType === "FINDING" || item.sourceType === "INCIDENT";
+    const claimedByUserId =
+      mode === "CLAIM_OVERLAY" ? (state?.claimedByUserId ?? null) : null;
+    const claimedByName =
+      mode === "CLAIM_OVERLAY" ? (state?.claimedBy?.name ?? null) : null;
+    const claimedAt =
+      mode === "CLAIM_OVERLAY" ? (state?.claimedAt ?? null) : null;
 
-    let ownerUserId = item.ownerUserId;
-    let ownerName = item.ownerName;
-    if (!usesNativeOwner && state?.claimedByUserId) {
-      ownerUserId = state.claimedByUserId;
-      ownerName = state.claimedBy?.name ?? null;
-    }
+    // Finding/Incident: claim UI maps to formal assignment (no overlay claim row).
+    const isClaimed =
+      mode === "NATIVE_ASSIGN"
+        ? Boolean(item.assignedToUserId)
+        : Boolean(claimedByUserId);
+    const isAssigned = Boolean(item.assignedToUserId);
+
+    const ownerUserId =
+      mode === "NATIVE_ASSIGN" ? item.assignedToUserId : claimedByUserId;
+    const ownerName =
+      mode === "NATIVE_ASSIGN" ? item.assignedToName : claimedByName;
 
     const acknowledged = Boolean(state?.acknowledgedAt);
     return {
@@ -727,9 +759,13 @@ async function enrichWithOverlayState(
       acknowledgedAt: state?.acknowledgedAt ?? null,
       acknowledgedByUserId: state?.acknowledgedByUserId ?? null,
       acknowledgedByName: state?.acknowledgedBy?.name ?? null,
+      claimedByUserId,
+      claimedByName,
+      claimedAt,
+      isClaimed,
+      isAssigned,
       ownerUserId,
       ownerName,
-      isClaimed: Boolean(ownerUserId),
       isMine: Boolean(viewerUserId && ownerUserId === viewerUserId),
       isSnoozedForCurrentUser: Boolean(snooze),
       snoozedUntil: snooze?.snoozedUntil ?? null,

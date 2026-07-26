@@ -319,7 +319,8 @@ export function SecurityEventInvestigationPanel({
                   <span className="text-foreground">
                     {handoff.suggestedOwner.name}
                   </span>{" "}
-                  (optional — never applied unless checked)
+                  (optional — never applied unless checked; does not overwrite
+                  an existing assignee)
                 </span>
               </label>
             )}

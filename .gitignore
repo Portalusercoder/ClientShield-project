@@ -47,3 +47,14 @@ next-env.d.ts
 
 # Generated security reports (local MVP storage — never public)
 /storage/reports/
+
+# Manual database backups (Phase 6P1 scripts)
+/backups/
+
+# Production env files (never commit)
+.env.production
+.env.production.local
+
+# Enabled nginx TLS site (optional; copy from ssl.conf.example)
+/nginx/conf.d/ssl.conf
+/nginx/certs/*.pem

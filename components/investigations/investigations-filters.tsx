@@ -6,7 +6,10 @@ import { useCallback } from "react";
 const STATUSES = [
   "OPEN",
   "INVESTIGATING",
+  "IN_PROGRESS",
+  "PENDING",
   "CONFIRMED",
+  "RESOLVED",
   "DISMISSED",
   "LINKED_TO_INCIDENT",
   "CLOSED",

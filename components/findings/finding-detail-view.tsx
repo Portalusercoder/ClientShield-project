@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState, useTransition } from "react";
+import { useMemo, useState, useTransition } from "react";
 import {
   addFindingNoteAction,
   createRemediationTaskAction,
@@ -14,6 +14,10 @@ import {
 } from "@/components/findings/finding-badges";
 import { FindingTriagePanel } from "@/components/findings/finding-triage-panel";
 import { EscalateFindingButton } from "@/components/incidents/escalate-finding-button";
+import { PageBreadcrumbs } from "@/components/workflow/page-breadcrumbs";
+import { RelatedObjectsPanel } from "@/components/workflow/related-objects-panel";
+import { WorkflowQuickActions } from "@/components/workflow/workflow-quick-actions";
+import { WorkflowTrail } from "@/components/workflow/workflow-trail";
 import { SeverityBadge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -26,6 +30,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { formatDate, formatRelativeTime } from "@/lib/utils";
 import { formatEvidenceForDisplay } from "@/lib/findings/sanitize-evidence";
+import { buildWorkflowStages } from "@/lib/workflow/workflow-context";
 import type { FindingDetail, FindingInstanceItem } from "@/types/findings";
 
 type Tab =
@@ -93,18 +98,109 @@ export function FindingDetailView({
     });
   }
 
+  const relatedSeId = finding.relatedSecurityEventIds[0] ?? null;
+  const workflowStages = useMemo(
+    () =>
+      buildWorkflowStages({
+        current: "finding",
+        securityEvent: relatedSeId
+          ? { id: relatedSeId, title: "Related security event" }
+          : null,
+        investigation: finding.investigation
+          ? {
+              id: finding.investigation.id,
+              title: finding.investigation.title,
+            }
+          : null,
+        finding: { id: finding.id, title: finding.title },
+      }),
+    [finding, relatedSeId]
+  );
+
+  const relatedObjects = useMemo(() => {
+    const items: {
+      id: string;
+      kind: "security-event" | "investigation" | "asset";
+      label: string;
+      href: string;
+      meta?: string;
+    }[] = [];
+    if (finding.investigation) {
+      items.push({
+        id: finding.investigation.id,
+        kind: "investigation",
+        label: finding.investigation.title,
+        href: `/investigations/${finding.investigation.id}`,
+        meta: finding.investigation.status,
+      });
+    }
+    if (finding.assetId) {
+      items.push({
+        id: finding.assetId,
+        kind: "asset",
+        label: finding.assetName ?? "Asset",
+        href: `/assets/${finding.assetId}`,
+        meta: "Asset",
+      });
+    }
+    for (const seid of finding.relatedSecurityEventIds.slice(0, 5)) {
+      items.push({
+        id: seid,
+        kind: "security-event",
+        label: seid,
+        href: `/security-events/${seid}`,
+        meta: "Security Event",
+      });
+    }
+    return items;
+  }, [finding]);
+
+  const quickActions = useMemo(() => {
+    const actions: {
+      id: string;
+      label: string;
+      href: string;
+      available: boolean;
+    }[] = [];
+    if (finding.investigation) {
+      actions.push({
+        id: "open-inv",
+        label: "Open Investigation",
+        href: `/investigations/${finding.investigation.id}`,
+        available: true,
+      });
+    }
+    if (finding.assetId) {
+      actions.push({
+        id: "open-asset",
+        label: "Open Asset",
+        href: `/assets/${finding.assetId}`,
+        available: true,
+      });
+    }
+    return actions;
+  }, [finding.investigation, finding.assetId]);
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-        <div>
-          <p className="text-xs text-muted">
-            <Link href="/vulnerabilities" className="hover:text-accent">
-              Findings
-            </Link>
-            {" / "}
-            {finding.code ?? finding.id.slice(0, 8)}
-          </p>
-          <h1 className="mt-1 text-2xl font-semibold text-foreground">
+        <div className="space-y-2">
+          <PageBreadcrumbs
+            items={[
+              { label: "Findings", href: "/vulnerabilities" },
+              ...(finding.investigation
+                ? [
+                    {
+                      label: "Investigation",
+                      href: `/investigations/${finding.investigation.id}`,
+                    },
+                  ]
+                : []),
+              { label: finding.code ?? finding.id.slice(0, 8) },
+            ]}
+          />
+          <WorkflowTrail stages={workflowStages} />
+          <h1 className="text-2xl font-semibold text-foreground">
             {finding.title}
           </h1>
           <div className="mt-2 flex flex-wrap items-center gap-2">
@@ -172,6 +268,16 @@ export function FindingDetailView({
         </div>
       )}
 
+      <div className="grid gap-4 lg:grid-cols-2">
+        <RelatedObjectsPanel
+          title="Related objects"
+          objects={relatedObjects}
+          emptyTitle="No Investigation linked"
+          emptyDescription="Findings created outside an Investigation may not have a primary Investigation yet."
+        />
+        <WorkflowQuickActions actions={quickActions} />
+      </div>
+
       <nav className="flex gap-1 border-b border-border">
         {(
           [
@@ -210,7 +316,50 @@ export function FindingDetailView({
                 {finding.description ?? "No description provided."}
               </CardDescription>
             </CardHeader>
-            <CardContent>
+            <CardContent className="space-y-6">
+              {finding.investigation ? (
+                <div className="rounded-md border border-border px-3 py-3">
+                  <p className="text-xs uppercase tracking-wide text-muted">
+                    Primary Investigation
+                  </p>
+                  <Link
+                    href={`/investigations/${finding.investigation.id}`}
+                    className="mt-1 block text-sm font-medium text-accent hover:underline"
+                  >
+                    {finding.investigation.title}
+                  </Link>
+                  <p className="mt-1 text-xs text-muted">
+                    {finding.investigation.status} ·{" "}
+                    {finding.investigation.severity}
+                    {finding.investigation.linkedAt
+                      ? ` · linked ${formatRelativeTime(finding.investigation.linkedAt)}`
+                      : ""}
+                  </p>
+                  <p className="mt-2 text-xs text-muted">
+                    Finding and Investigation statuses/severities are
+                    independent after create.
+                  </p>
+                </div>
+              ) : null}
+              {finding.relatedSecurityEventIds.length > 0 ? (
+                <div>
+                  <p className="mb-2 text-xs uppercase tracking-wide text-muted">
+                    Related Security Events
+                  </p>
+                  <ul className="space-y-1">
+                    {finding.relatedSecurityEventIds.map((seid) => (
+                      <li key={seid}>
+                        <Link
+                          href={`/security-events/${seid}`}
+                          className="font-mono text-xs text-accent hover:underline"
+                        >
+                          {seid}
+                        </Link>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
               <dl className="grid gap-4 sm:grid-cols-2">
                 <Info label="Client" value={finding.clientName} />
                 <Info

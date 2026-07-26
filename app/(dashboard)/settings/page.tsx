@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { OrganizationSettingsForm } from "@/components/settings/organization-settings-form";
+import { NotificationPreferencesPanel } from "@/components/settings/notification-preferences-panel";
 import { SlaPoliciesSettings } from "@/components/settings/sla-policies-settings";
 import {
   Card,
@@ -12,6 +13,7 @@ import {
 import { hasMinimumRole, requireSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { getOrganizationSettings } from "@/services/organization/organization-settings.service";
+import { listUserNotificationPreferences } from "@/services/notifications/notification-preferences.service";
 import { listSlaPolicies } from "@/services/sla/sla-policy.service";
 
 export const metadata: Metadata = {
@@ -24,12 +26,16 @@ export default async function SettingsPage() {
   const session = await requireSession();
   const settings = await getOrganizationSettings(session.organizationId);
   const canEdit = hasMinimumRole(session, "ADMIN");
-  const [policies, clients] = await Promise.all([
+  const [policies, clients, notificationPreferences] = await Promise.all([
     listSlaPolicies(session.organizationId),
     prisma.client.findMany({
       where: { organizationId: session.organizationId },
       select: { id: true, name: true },
       orderBy: { name: "asc" },
+    }),
+    listUserNotificationPreferences({
+      organizationId: session.organizationId,
+      userId: session.userId,
     }),
   ]);
   const orgDefaults = policies.filter((p) => p.clientId == null);
@@ -45,6 +51,8 @@ export default async function SettingsPage() {
       </div>
 
       <OrganizationSettingsForm settings={settings} canEdit={canEdit} />
+
+      <NotificationPreferencesPanel preferences={notificationPreferences} />
 
       <SlaPoliciesSettings
         orgDefaults={orgDefaults}

@@ -407,6 +407,13 @@ async function main() {
       ANALYST_A,
     "12. Investigation overlay claim works"
   );
+  const invRowAfterClaim = await prisma.investigationGroup.findUnique({
+    where: { id: inv.id },
+  });
+  assert(
+    invRowAfterClaim?.assignedToUserId == null,
+    "12b. Investigation claim does not write formal assignee"
+  );
 
   // Concurrent claim on seCrit
   const results = await Promise.allSettled([

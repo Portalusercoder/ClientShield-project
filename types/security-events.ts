@@ -170,6 +170,15 @@ export interface SecurityEventDetail {
   activities: SecurityEventActivityItem[];
   linkableIncidents: { id: string; title: string; status: string; severity: string }[];
   investigationHandoff: SecurityEventInvestigationHandoff | null;
+  /** Attention overlay + formal ownership snapshot (Phase 6b3). */
+  ownership: {
+    inAttentionQueue: boolean;
+    acknowledgedAt: Date | null;
+    acknowledgedByName: string | null;
+    claimedByUserId: string | null;
+    claimedByName: string | null;
+    claimedAt: Date | null;
+  };
   createdAt: Date;
   updatedAt: Date;
 }

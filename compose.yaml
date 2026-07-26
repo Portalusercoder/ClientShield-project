@@ -1,3 +1,11 @@
+# ClientShield — development compose (default)
+# Usage: docker compose up -d
+# Starts local Postgres + OWASP ZAP only. Run the Next.js app on the host
+# with `npm run dev` (see README).
+#
+# Production stack: docker compose -f compose.production.yaml up -d
+# (see DEPLOYMENT.md)
+
 services:
   postgres:
     image: postgres:16

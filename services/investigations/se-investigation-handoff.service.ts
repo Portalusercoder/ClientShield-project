@@ -26,7 +26,10 @@ export type {
 const LINKABLE_STATUSES: InvestigationStatus[] = [
   "OPEN",
   "INVESTIGATING",
+  "IN_PROGRESS",
+  "PENDING",
   "CONFIRMED",
+  "RESOLVED",
   "LINKED_TO_INCIDENT",
 ];
 

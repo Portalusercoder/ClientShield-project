@@ -87,6 +87,9 @@ async function cleanup() {
   await prisma.threatIntelLookup.deleteMany({
     where: { organizationId: { in: [TEST_ORG, OTHER_ORG] } },
   });
+  await prisma.investigationNote.deleteMany({
+    where: { organizationId: { in: [TEST_ORG, OTHER_ORG] } },
+  });
   await prisma.investigationActivity.deleteMany({
     where: { organizationId: { in: [TEST_ORG, OTHER_ORG] } },
   });

@@ -1,6 +1,12 @@
 /**
  * Attention overlay mutations: shared acknowledgement, hybrid claim, personal snooze.
- * Does not mutate SecurityEvent/Finding/Investigation/Incident status for ack/snooze.
+ *
+ * Phase 6b3 ownership model:
+ * - ACKNOWLEDGED = reviewed (overlay); never implies claim/assign; never removes eligibility
+ * - CLAIMED = temporary work lock (overlay for SECURITY_EVENT / INVESTIGATION)
+ * - ASSIGNED = formal ownership (Finding / Incident / InvestigationGroup)
+ * Finding/Incident Attention Claim delegates to native Assign (no separate claim layer).
+ * Investigation Claim does NOT write assignedToUserId (independent).
  */
 import { Prisma, type AttentionSourceType, type UserRole } from "@prisma/client";
 import { prisma } from "@/lib/db";
@@ -8,21 +14,102 @@ import { hasMinimumRole } from "@/lib/auth/permissions";
 import type { AuthSession } from "@/lib/auth/types";
 import { createAuditLog } from "@/services/audit.service";
 import { buildEligibilityGeneration } from "@/services/attention/eligibility-generation";
+import {
+  ATTENTION_INV_ELIGIBLE_STATUSES,
+  ATTENTION_SE_ELIGIBLE,
+} from "@/services/attention/queue-rules";
 import { assignFinding } from "@/services/findings.service";
 import { assignIncident } from "@/services/incidents.service";
+import { appendInvestigationActivity } from "@/services/investigations/investigation-activity.service";
 import { OPEN_INCIDENT_STATUSES } from "@/services/incidents/status-transitions";
+import { notifyClaimTransferred } from "@/services/notifications/notification-producers.service";
+import { recordSecurityEventActivity } from "@/services/security-events/security-event-activity.service";
 import { UNRESOLVED_FINDING_STATUSES } from "@/types/findings";
 import type { AttentionSnoozePreset } from "@/types/attention";
+import type { NotificationSourceType } from "@prisma/client";
 
-const SE_ELIGIBLE = {
-  classification: "ACTIONABLE" as const,
-  severity: ["CRITICAL", "HIGH"] as const,
-  status: ["NEW", "REVIEWING"] as const,
-};
+function attentionHref(
+  sourceType: AttentionSourceType,
+  sourceId: string
+): string {
+  switch (sourceType) {
+    case "SECURITY_EVENT":
+      return `/security-events/${sourceId}`;
+    case "INVESTIGATION":
+      return `/investigations/${sourceId}`;
+    case "FINDING":
+      return `/vulnerabilities/${sourceId}`;
+    case "INCIDENT":
+      return `/incidents/${sourceId}`;
+    default:
+      return "/attention";
+  }
+}
 
+function toNotificationSourceType(
+  sourceType: AttentionSourceType
+): NotificationSourceType {
+  switch (sourceType) {
+    case "SECURITY_EVENT":
+      return "SECURITY_EVENT";
+    case "INVESTIGATION":
+      return "INVESTIGATION";
+    case "FINDING":
+      return "FINDING";
+    case "INCIDENT":
+      return "INCIDENT";
+    default:
+      return "SYSTEM";
+  }
+}
+
+async function emitClaimTransferredIfNeeded(input: {
+  organizationId: string;
+  actorId: string;
+  sourceType: AttentionSourceType;
+  sourceId: string;
+  title: string;
+  previousHolderUserId: string | null;
+  newHolderUserId: string;
+  transferred: boolean;
+  clientId?: string | null;
+  assetId?: string | null;
+}): Promise<void> {
+  if (!input.transferred) return;
+  const transferGeneration = await prisma.auditLog.count({
+    where: {
+      organizationId: input.organizationId,
+      action: "ATTENTION_CLAIM_TRANSFERRED",
+      OR: [
+        { resourceId: input.sourceId },
+        {
+          metadata: {
+            path: ["sourceId"],
+            equals: input.sourceId,
+          },
+        },
+      ],
+    },
+  });
+  await notifyClaimTransferred({
+    organizationId: input.organizationId,
+    sourceType: toNotificationSourceType(input.sourceType),
+    sourceId: input.sourceId,
+    title: input.title,
+    actorId: input.actorId,
+    previousHolderUserId: input.previousHolderUserId,
+    newHolderUserId: input.newHolderUserId,
+    href: attentionHref(input.sourceType, input.sourceId),
+    transferGeneration: Math.max(transferGeneration, 1),
+    clientId: input.clientId,
+    assetId: input.assetId,
+  });
+}
+
+const SE_ELIGIBLE = ATTENTION_SE_ELIGIBLE;
 const INV_ELIGIBLE = {
   severity: ["CRITICAL", "HIGH"] as const,
-  status: ["OPEN", "INVESTIGATING", "CONFIRMED"] as const,
+  status: ATTENTION_INV_ELIGIBLE_STATUSES,
 };
 
 export class AttentionConflictError extends Error {
@@ -147,13 +234,14 @@ export async function loadEligibleAttentionSource(input: {
         severity: true,
         status: true,
         createdAt: true,
+        assignedToUserId: true,
       },
     });
     if (!row) throw new Error("Investigation not found");
     if (
       !INV_ELIGIBLE.severity.includes(row.severity as "CRITICAL" | "HIGH") ||
       !INV_ELIGIBLE.status.includes(
-        row.status as "OPEN" | "INVESTIGATING" | "CONFIRMED"
+        row.status as (typeof INV_ELIGIBLE.status)[number]
       )
     ) {
       throw new Error("Source is not eligible for the attention queue");
@@ -168,7 +256,7 @@ export async function loadEligibleAttentionSource(input: {
         anchorAt: row.createdAt,
       }),
       severity: row.severity as "CRITICAL" | "HIGH",
-      nativeAssigneeId: null,
+      nativeAssigneeId: row.assignedToUserId,
     };
   }
 
@@ -251,6 +339,101 @@ async function upsertAttentionState(input: {
   }
 }
 
+async function assertClaimTargetInOrg(
+  organizationId: string,
+  userId: string
+): Promise<void> {
+  const user = await prisma.user.findFirst({
+    where: { id: userId, organizationId, disabledAt: null },
+    select: { id: true },
+  });
+  if (!user) {
+    throw new Error("Claim target not found in organization");
+  }
+}
+
+/**
+ * Read-only ownership snapshot for detail pages (SE / Investigation).
+ */
+export async function getAttentionOwnershipSnapshot(input: {
+  organizationId: string;
+  sourceType: AttentionSourceType;
+  sourceId: string;
+}): Promise<{
+  eligible: boolean;
+  eligibilityGeneration: string | null;
+  acknowledgedAt: Date | null;
+  acknowledgedByUserId: string | null;
+  acknowledgedByName: string | null;
+  claimedByUserId: string | null;
+  claimedByName: string | null;
+  claimedAt: Date | null;
+  assignedToUserId: string | null;
+  assignedToName: string | null;
+}> {
+  try {
+    const source = await loadEligibleAttentionSource(input);
+    const state = await prisma.socAttentionState.findUnique({
+      where: {
+        organizationId_sourceType_sourceId_eligibilityGeneration: {
+          organizationId: input.organizationId,
+          sourceType: input.sourceType,
+          sourceId: input.sourceId,
+          eligibilityGeneration: source.eligibilityGeneration,
+        },
+      },
+      include: {
+        acknowledgedBy: { select: { id: true, name: true } },
+        claimedBy: { select: { id: true, name: true } },
+      },
+    });
+
+    let assignedToName: string | null = null;
+    if (source.nativeAssigneeId) {
+      const u = await prisma.user.findFirst({
+        where: {
+          id: source.nativeAssigneeId,
+          organizationId: input.organizationId,
+        },
+        select: { name: true },
+      });
+      assignedToName = u?.name ?? null;
+    }
+
+    const claimedByUserId =
+      input.sourceType === "SECURITY_EVENT" ||
+      input.sourceType === "INVESTIGATION"
+        ? state?.claimedByUserId ?? null
+        : null;
+
+    return {
+      eligible: true,
+      eligibilityGeneration: source.eligibilityGeneration,
+      acknowledgedAt: state?.acknowledgedAt ?? null,
+      acknowledgedByUserId: state?.acknowledgedByUserId ?? null,
+      acknowledgedByName: state?.acknowledgedBy?.name ?? null,
+      claimedByUserId,
+      claimedByName: state?.claimedBy?.name ?? null,
+      claimedAt: state?.claimedAt ?? null,
+      assignedToUserId: source.nativeAssigneeId,
+      assignedToName,
+    };
+  } catch {
+    return {
+      eligible: false,
+      eligibilityGeneration: null,
+      acknowledgedAt: null,
+      acknowledgedByUserId: null,
+      acknowledgedByName: null,
+      claimedByUserId: null,
+      claimedByName: null,
+      claimedAt: null,
+      assignedToUserId: null,
+      assignedToName: null,
+    };
+  }
+}
+
 export async function acknowledgeAttention(input: {
   session: AuthSession;
   sourceType: AttentionSourceType;
@@ -316,8 +499,19 @@ export async function acknowledgeAttention(input: {
       sourceType: source.sourceType,
       sourceId: source.sourceId,
       eligibilityGeneration: source.eligibilityGeneration,
+      claimHolderId: row.claimedByUserId ?? null,
     },
   });
+
+  if (source.sourceType === "SECURITY_EVENT") {
+    await recordSecurityEventActivity({
+      organizationId,
+      securityEventId: source.sourceId,
+      actorUserId: input.session.userId,
+      activityType: "ATTENTION_ACKNOWLEDGED",
+      message: "Attention item acknowledged (review flag — not triage status)",
+    });
+  }
 
   return {
     acknowledgedAt: row.acknowledgedAt!,
@@ -325,11 +519,83 @@ export async function acknowledgeAttention(input: {
   };
 }
 
+async function recordOverlayClaimActivity(input: {
+  organizationId: string;
+  actorId: string;
+  sourceType: "SECURITY_EVENT" | "INVESTIGATION";
+  sourceId: string;
+  previousClaimHolderId: string | null;
+  newClaimHolderId: string;
+  transferred: boolean;
+}): Promise<void> {
+  if (input.sourceType === "SECURITY_EVENT") {
+    await recordSecurityEventActivity({
+      organizationId: input.organizationId,
+      securityEventId: input.sourceId,
+      actorUserId: input.actorId,
+      activityType: input.transferred
+        ? "ATTENTION_CLAIM_TRANSFERRED"
+        : "ATTENTION_CLAIMED",
+      message: input.transferred
+        ? "Attention claim transferred"
+        : "Attention item claimed",
+      metadata: {
+        previousClaimHolderId: input.previousClaimHolderId,
+        claimHolderId: input.newClaimHolderId,
+      },
+    });
+    return;
+  }
+
+  await appendInvestigationActivity({
+    organizationId: input.organizationId,
+    groupId: input.sourceId,
+    actorUserId: input.actorId,
+    activityType: input.transferred ? "CLAIM_TRANSFERRED" : "CLAIMED",
+    message: input.transferred
+      ? "Attention claim transferred"
+      : "Investigation claimed in Attention (work lock — not formal assignment)",
+    metadata: {
+      previousClaimHolderId: input.previousClaimHolderId,
+      claimHolderId: input.newClaimHolderId,
+    },
+  });
+}
+
+async function recordOverlayClaimReleaseActivity(input: {
+  organizationId: string;
+  actorId: string;
+  sourceType: "SECURITY_EVENT" | "INVESTIGATION";
+  sourceId: string;
+  previousClaimHolderId: string;
+}): Promise<void> {
+  if (input.sourceType === "SECURITY_EVENT") {
+    await recordSecurityEventActivity({
+      organizationId: input.organizationId,
+      securityEventId: input.sourceId,
+      actorUserId: input.actorId,
+      activityType: "ATTENTION_CLAIM_RELEASED",
+      message: "Attention claim released",
+      metadata: { previousClaimHolderId: input.previousClaimHolderId },
+    });
+    return;
+  }
+
+  await appendInvestigationActivity({
+    organizationId: input.organizationId,
+    groupId: input.sourceId,
+    actorUserId: input.actorId,
+    activityType: "CLAIM_RELEASED",
+    message: "Attention claim released",
+    metadata: { previousClaimHolderId: input.previousClaimHolderId },
+  });
+}
+
 export async function claimAttention(input: {
   session: AuthSession;
   sourceType: AttentionSourceType;
   sourceId: string;
-  /** ADMIN reassign target; default self */
+  /** ADMIN transfer target; default self */
   assignToUserId?: string;
 }): Promise<void> {
   assertAnalyst(input.session);
@@ -343,6 +609,8 @@ export async function claimAttention(input: {
   ) {
     throw new Error("Forbidden");
   }
+
+  await assertClaimTargetInOrg(organizationId, targetUserId);
 
   const source = await loadEligibleAttentionSource({
     organizationId,
@@ -365,13 +633,13 @@ export async function claimAttention(input: {
       incidentId: source.sourceId,
       data: { assignedToUserId: targetUserId },
     });
+    const transferred = Boolean(previous && previous !== targetUserId);
     await createAuditLog({
       organizationId,
       actorId: input.session.userId,
-      action:
-        previous && previous !== targetUserId
-          ? "ATTENTION_REASSIGNED"
-          : "ATTENTION_CLAIMED",
+      action: transferred
+        ? "ATTENTION_CLAIM_TRANSFERRED"
+        : "ATTENTION_CLAIMED",
       resourceType: "Incident",
       resourceId: source.sourceId,
       metadata: {
@@ -380,7 +648,20 @@ export async function claimAttention(input: {
         eligibilityGeneration: source.eligibilityGeneration,
         previousOwnerId: previous,
         newOwnerId: targetUserId,
+        claimHolderId: targetUserId,
+        delegatesToAssign: true,
+        ownershipMode: "NATIVE_ASSIGN",
       },
+    });
+    await emitClaimTransferredIfNeeded({
+      organizationId,
+      actorId: input.session.userId,
+      sourceType: source.sourceType,
+      sourceId: source.sourceId,
+      title: "Incident claim",
+      previousHolderUserId: previous,
+      newHolderUserId: targetUserId,
+      transferred,
     });
     return;
   }
@@ -405,13 +686,13 @@ export async function claimAttention(input: {
           : null,
       },
     });
+    const transferred = Boolean(previous && previous !== targetUserId);
     await createAuditLog({
       organizationId,
       actorId: input.session.userId,
-      action:
-        previous && previous !== targetUserId
-          ? "ATTENTION_REASSIGNED"
-          : "ATTENTION_CLAIMED",
+      action: transferred
+        ? "ATTENTION_CLAIM_TRANSFERRED"
+        : "ATTENTION_CLAIMED",
       resourceType: "Finding",
       resourceId: source.sourceId,
       metadata: {
@@ -420,7 +701,20 @@ export async function claimAttention(input: {
         eligibilityGeneration: source.eligibilityGeneration,
         previousOwnerId: previous,
         newOwnerId: targetUserId,
+        claimHolderId: targetUserId,
+        delegatesToAssign: true,
+        ownershipMode: "NATIVE_ASSIGN",
       },
+    });
+    await emitClaimTransferredIfNeeded({
+      organizationId,
+      actorId: input.session.userId,
+      sourceType: source.sourceType,
+      sourceId: source.sourceId,
+      title: "Finding claim",
+      previousHolderUserId: previous,
+      newHolderUserId: targetUserId,
+      transferred,
     });
     return;
   }
@@ -459,13 +753,15 @@ export async function claimAttention(input: {
         claimedAt: now,
       },
     });
+    const transferred = Boolean(
+      before?.claimedByUserId && before.claimedByUserId !== targetUserId
+    );
     await createAuditLog({
       organizationId,
       actorId: input.session.userId,
-      action:
-        before?.claimedByUserId && before.claimedByUserId !== targetUserId
-          ? "ATTENTION_REASSIGNED"
-          : "ATTENTION_CLAIMED",
+      action: transferred
+        ? "ATTENTION_CLAIM_TRANSFERRED"
+        : "ATTENTION_CLAIMED",
       resourceType: "SocAttentionState",
       resourceId: updated.id,
       metadata: {
@@ -474,7 +770,33 @@ export async function claimAttention(input: {
         eligibilityGeneration: source.eligibilityGeneration,
         previousOwnerId: before?.claimedByUserId ?? null,
         newOwnerId: targetUserId,
+        claimHolderId: targetUserId,
+        claimedAt: now.toISOString(),
+        ownershipMode: "CLAIM_OVERLAY",
+        assignedToUserId: source.nativeAssigneeId,
       },
+    });
+    await recordOverlayClaimActivity({
+      organizationId,
+      actorId: input.session.userId,
+      sourceType: source.sourceType,
+      sourceId: source.sourceId,
+      previousClaimHolderId: before?.claimedByUserId ?? null,
+      newClaimHolderId: targetUserId,
+      transferred,
+    });
+    await emitClaimTransferredIfNeeded({
+      organizationId,
+      actorId: input.session.userId,
+      sourceType: source.sourceType,
+      sourceId: source.sourceId,
+      title:
+        source.sourceType === "SECURITY_EVENT"
+          ? "Security Event claim"
+          : "Investigation claim",
+      previousHolderUserId: before?.claimedByUserId ?? null,
+      newHolderUserId: targetUserId,
+      transferred,
     });
     return;
   }
@@ -561,7 +883,20 @@ export async function claimAttention(input: {
       eligibilityGeneration: source.eligibilityGeneration,
       previousOwnerId: null,
       newOwnerId: targetUserId,
+      claimHolderId: targetUserId,
+      claimedAt: now.toISOString(),
+      ownershipMode: "CLAIM_OVERLAY",
+      assignedToUserId: source.nativeAssigneeId,
     },
+  });
+  await recordOverlayClaimActivity({
+    organizationId,
+    actorId: input.session.userId,
+    sourceType: source.sourceType,
+    sourceId: source.sourceId,
+    previousClaimHolderId: null,
+    newClaimHolderId: targetUserId,
+    transferred: false,
   });
 }
 
@@ -604,6 +939,9 @@ export async function releaseAttentionClaim(input: {
         eligibilityGeneration: source.eligibilityGeneration,
         previousOwnerId: previous,
         newOwnerId: null,
+        claimHolderId: null,
+        delegatesToAssign: true,
+        ownershipMode: "NATIVE_ASSIGN",
       },
     });
     return;
@@ -640,6 +978,9 @@ export async function releaseAttentionClaim(input: {
         eligibilityGeneration: source.eligibilityGeneration,
         previousOwnerId: previous,
         newOwnerId: null,
+        claimHolderId: null,
+        delegatesToAssign: true,
+        ownershipMode: "NATIVE_ASSIGN",
       },
     });
     return;
@@ -682,7 +1023,17 @@ export async function releaseAttentionClaim(input: {
       eligibilityGeneration: source.eligibilityGeneration,
       previousOwnerId: previous,
       newOwnerId: null,
+      claimHolderId: null,
+      ownershipMode: "CLAIM_OVERLAY",
+      assignedToUserId: source.nativeAssigneeId,
     },
+  });
+  await recordOverlayClaimReleaseActivity({
+    organizationId,
+    actorId: input.session.userId,
+    sourceType: source.sourceType,
+    sourceId: source.sourceId,
+    previousClaimHolderId: previous,
   });
 }
 

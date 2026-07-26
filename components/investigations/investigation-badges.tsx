@@ -19,7 +19,11 @@ const STATUS_STYLES: Record<InvestigationStatus, string> = {
   OPEN: "bg-severity-high/15 text-severity-high border-severity-high/30",
   INVESTIGATING:
     "bg-severity-medium/15 text-severity-medium border-severity-medium/30",
+  IN_PROGRESS:
+    "bg-severity-medium/15 text-severity-medium border-severity-medium/30",
+  PENDING: "bg-severity-low/15 text-severity-low border-severity-low/30",
   CONFIRMED: "bg-accent/15 text-accent border-accent/30",
+  RESOLVED: "bg-success/15 text-success border-success/30",
   DISMISSED: "bg-muted/20 text-muted border-border",
   LINKED_TO_INCIDENT: "bg-success/15 text-success border-success/30",
   CLOSED: "bg-muted/20 text-muted border-border",

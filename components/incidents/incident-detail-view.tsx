@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState, useTransition } from "react";
+import { useMemo, useState, useTransition } from "react";
 import {
   addEvidenceNoteAction,
   addIncidentNoteAction,
@@ -28,6 +28,11 @@ import {
   IncidentStatusBadge,
 } from "@/components/incidents/incident-badges";
 import { SecurityEventSeverityBadge } from "@/components/security-events/security-event-badges";
+import { PageBreadcrumbs } from "@/components/workflow/page-breadcrumbs";
+import { RelatedObjectsPanel } from "@/components/workflow/related-objects-panel";
+import { WorkflowEmptyState } from "@/components/workflow/workflow-empty-state";
+import { WorkflowQuickActions } from "@/components/workflow/workflow-quick-actions";
+import { WorkflowTrail } from "@/components/workflow/workflow-trail";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -37,6 +42,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { formatDate, formatRelativeTime } from "@/lib/utils";
+import { buildWorkflowStages } from "@/lib/workflow/workflow-context";
 import { INCIDENT_STATUS_ACTIONS } from "@/services/incidents/status-transitions";
 import type {
   EvidenceItem,
@@ -327,23 +333,113 @@ export function IncidentDetailView({
       .map((e) => e.sourceReferenceId as string)
   );
 
+  const primarySe = securityEvents[0] ?? null;
+  const primaryFinding = incident.findings[0] ?? null;
+  const workflowStages = useMemo(
+    () =>
+      buildWorkflowStages({
+        current: "incident",
+        securityEvent: primarySe
+          ? { id: primarySe.id, title: primarySe.title }
+          : null,
+        finding: primaryFinding
+          ? {
+              id: primaryFinding.findingId,
+              title: primaryFinding.title,
+            }
+          : null,
+        incident: { id: incident.id, title: incident.title },
+      }),
+    [incident.id, incident.title, primarySe, primaryFinding]
+  );
+
+  const relatedObjects = useMemo(() => {
+    const items: {
+      id: string;
+      kind: "security-event" | "finding" | "asset";
+      label: string;
+      href: string;
+      meta?: string;
+    }[] = [];
+    if (incident.assetId && incident.assetName) {
+      items.push({
+        id: incident.assetId,
+        kind: "asset",
+        label: incident.assetName,
+        href: `/assets/${incident.assetId}`,
+        meta: "Asset",
+      });
+    }
+    for (const e of securityEvents.slice(0, 5)) {
+      items.push({
+        id: e.id,
+        kind: "security-event",
+        label: e.title,
+        href: `/security-events/${e.id}`,
+        meta: e.status,
+      });
+    }
+    for (const f of incident.findings.slice(0, 5)) {
+      items.push({
+        id: f.findingId,
+        kind: "finding",
+        label: f.title,
+        href: `/vulnerabilities/${f.findingId}`,
+        meta: f.status,
+      });
+    }
+    return items;
+  }, [incident, securityEvents]);
+
+  const quickActions = useMemo(() => {
+    const actions: {
+      id: string;
+      label: string;
+      href: string;
+      available: boolean;
+    }[] = [];
+    if (primarySe) {
+      actions.push({
+        id: "open-se",
+        label: "Open Security Event",
+        href: `/security-events/${primarySe.id}`,
+        available: true,
+      });
+    }
+    if (primaryFinding) {
+      actions.push({
+        id: "open-finding",
+        label: "Open Finding",
+        href: `/vulnerabilities/${primaryFinding.findingId}`,
+        available: true,
+      });
+    }
+    if (incident.assetId) {
+      actions.push({
+        id: "open-asset",
+        label: "Open Asset",
+        href: `/assets/${incident.assetId}`,
+        available: true,
+      });
+    }
+    return actions;
+  }, [primarySe, primaryFinding, incident.assetId]);
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-        <div>
-          <p className="text-xs text-muted">
-            <Link href="/incidents" className="hover:text-accent">
-              Incidents
-            </Link>
-            {" / "}
-            <span className="font-mono font-semibold text-accent">
-              {incident.caseNumber}
-            </span>
-          </p>
-          <p className="mt-2 font-mono text-sm font-semibold tracking-wide text-accent">
+        <div className="space-y-2">
+          <PageBreadcrumbs
+            items={[
+              { label: "Incidents", href: "/incidents" },
+              { label: incident.caseNumber },
+            ]}
+          />
+          <WorkflowTrail stages={workflowStages} />
+          <p className="font-mono text-sm font-semibold tracking-wide text-accent">
             {incident.caseNumber}
           </p>
-          <h1 className="mt-1 text-2xl font-semibold text-foreground">
+          <h1 className="text-2xl font-semibold text-foreground">
             {incident.title}
           </h1>
           <div className="mt-2 flex flex-wrap items-center gap-2">
@@ -534,6 +630,16 @@ export function IncidentDetailView({
           {error ?? message}
         </div>
       )}
+
+      <div className="grid gap-4 lg:grid-cols-2">
+        <RelatedObjectsPanel
+          title="Related objects"
+          objects={relatedObjects}
+          emptyTitle="No linked Security Events or Findings"
+          emptyDescription="Link evidence from the Security Events and Findings tabs to complete the workflow trail."
+        />
+        <WorkflowQuickActions actions={quickActions} />
+      </div>
 
       <div className="flex flex-wrap gap-2 border-b border-border pb-2">
         {tabs.map((t) => (
@@ -1623,7 +1729,14 @@ export function IncidentDetailView({
             </CardHeader>
             <CardContent>
               {incident.findings.length === 0 ? (
-                <p className="text-sm text-muted">No findings linked.</p>
+                <WorkflowEmptyState
+                  className="py-8"
+                  title="No Findings linked"
+                  why="Findings document concluded issues that support this response case."
+                  nextAction="Search and link Findings from the panel below, or open an Investigation to create one."
+                  secondaryHref="/vulnerabilities"
+                  secondaryLabel="Browse Findings"
+                />
               ) : (
                 <div className="overflow-x-auto">
                   <table className="w-full min-w-[720px] text-left text-sm">

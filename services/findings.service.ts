@@ -333,6 +333,14 @@ export async function getFindingById(
       assignedTo: { select: { name: true } },
       acceptedRiskApprovedBy: { select: { name: true } },
       validatedBy: { select: { name: true } },
+      investigationGroup: {
+        select: {
+          id: true,
+          title: true,
+          status: true,
+          severity: true,
+        },
+      },
       _count: { select: { instances: true } },
     },
   });
@@ -343,6 +351,13 @@ export async function getFindingById(
     finding.evidence && typeof finding.evidence === "object"
       ? (finding.evidence as Record<string, unknown>)
       : null;
+
+  const relatedSecurityEventIds = Array.isArray(
+    evidence?.relatedSecurityEventIds
+  )
+    ? (evidence!.relatedSecurityEventIds as unknown[])
+        .filter((v): v is string => typeof v === "string")
+    : [];
 
   const reviewDue =
     finding.status === "ACCEPTED_RISK" &&
@@ -381,6 +396,17 @@ export async function getFindingById(
     createdAt: finding.createdAt,
     updatedAt: finding.updatedAt,
     organizationId: finding.organizationId,
+    investigationGroupId: finding.investigationGroupId,
+    investigation: finding.investigationGroup
+      ? {
+          id: finding.investigationGroup.id,
+          title: finding.investigationGroup.title,
+          status: finding.investigationGroup.status,
+          severity: finding.investigationGroup.severity,
+          linkedAt: finding.investigationLinkedAt,
+        }
+      : null,
+    relatedSecurityEventIds,
     confidence: evidenceString(evidence, "confidence"),
     risk: evidenceString(evidence, "risk"),
     pluginId:

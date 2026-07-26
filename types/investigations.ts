@@ -108,6 +108,27 @@ export type InvestigationIncidentRow = {
   severity: string;
 };
 
+export type InvestigationFindingRow = {
+  id: string;
+  title: string;
+  severity: string;
+  status: string;
+  source: string;
+  assetName: string | null;
+  assignedToName: string | null;
+  linkedAt: Date | null;
+};
+
+export type InvestigationLinkableFinding = {
+  id: string;
+  title: string;
+  severity: string;
+  status: string;
+  source: string;
+  assetName: string | null;
+  alreadyLinkedElsewhere: boolean;
+};
+
 export type InvestigationActivityRow = {
   id: string;
   activityType: string;
@@ -115,6 +136,26 @@ export type InvestigationActivityRow = {
   note: string | null;
   createdAt: Date;
   actorUserId: string | null;
+  actorName: string | null;
+  actorEmail: string | null;
+  metadata?: unknown;
+};
+
+export type InvestigationNoteRow = {
+  id: string;
+  content: string;
+  createdAt: Date;
+  updatedAt: Date;
+  editedAt: Date | null;
+  authorUserId: string;
+  authorName: string | null;
+  authorEmail: string | null;
+};
+
+export type InvestigationAssigneeUser = {
+  id: string;
+  name: string | null;
+  email: string;
 };
 
 export type InvestigationCandidateRow = {
@@ -159,6 +200,15 @@ export type InvestigationDetailViewModel = {
   confirmedAt: Date | null;
   dismissedAt: Date | null;
   dismissReason: string | null;
+  assignedToUserId: string | null;
+  assignedAt: Date | null;
+  assignedTo: InvestigationAssigneeUser | null;
+  resolutionSummary: string | null;
+  closedAt: Date | null;
+  closedBy: InvestigationAssigneeUser | null;
+  reopenedAt: Date | null;
+  reopenedBy: InvestigationAssigneeUser | null;
+  lastReopenReason: string | null;
   createdAt: Date;
   updatedAt: Date;
   eventCount: number;
@@ -168,7 +218,19 @@ export type InvestigationDetailViewModel = {
   observables: InvestigationObservableRow[];
   threatIntelLookups: InvestigationThreatIntelRow[];
   incidents: InvestigationIncidentRow[];
+  findings: InvestigationFindingRow[];
+  linkableFindings: InvestigationLinkableFinding[];
+  findingCreateDefaults: {
+    title: string;
+    description: string;
+    severity: string;
+    assetId: string | null;
+    assignedToUserId: string | null;
+  };
+  orgAssets: { id: string; name: string }[];
   activities: InvestigationActivityRow[];
+  notes: InvestigationNoteRow[];
+  orgUsers: InvestigationAssigneeUser[];
   candidates: InvestigationCandidateRow[];
   linkableIncidents: InvestigationLinkableIncident[];
   threatIntelEnabled: boolean;

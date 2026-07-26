@@ -2,12 +2,19 @@
  * Derived SOC attention queue types.
  * Overlay ack/claim/snooze is joined at read time; eligibility stays derived.
  * Contractual SLA (INCIDENT snapshots) is joined at read time.
+ *
+ * Ownership vocabulary (Phase 6b3):
+ * - Acknowledged = reviewed (overlay)
+ * - Claimed = temporary work lock (overlay for SE/Inv; Finding/Incident use Assign)
+ * - Assigned = formal ownership on the source object
  */
 import type { AttentionSourceType } from "@prisma/client";
 import type { AttentionSlaFilter, SlaMetric, SlaState } from "@/types/sla";
+import type { AttentionOwnershipMode } from "@/lib/ownership/model";
 
 export type { AttentionSourceType };
 export type { AttentionSlaFilter };
+export type { AttentionOwnershipMode };
 
 export type AttentionSeverity = "CRITICAL" | "HIGH";
 
@@ -17,6 +24,7 @@ export type AttentionOverdueFilter = "ALL" | "OVERDUE";
 
 export type AttentionAckFilter = "ALL" | "UNACKNOWLEDGED" | "ACKNOWLEDGED";
 
+/** Claim / assign availability filter (see ownershipMode per source). */
 export type AttentionOwnershipFilter = "ALL" | "UNCLAIMED" | "MINE";
 
 /** ACTIVE = hide personal snooze (default). SNOOZED = only snoozed. ALL = include both. */
@@ -43,19 +51,35 @@ export interface AttentionItem {
   waitingSince: Date;
   dueDate: Date | null;
   overdue: boolean;
-  /** Legacy alias — prefer ownerUserId */
-  assigneeId: string | null;
-  assigneeName: string | null;
   href: string;
-  // Overlay / normalized ownership
+  /** How Attention ownership is stored for this source type. */
+  ownershipMode: AttentionOwnershipMode;
+  // Acknowledgement (overlay review — not formal ownership)
   acknowledged: boolean;
   acknowledgedAt: Date | null;
   acknowledgedByUserId: string | null;
   acknowledgedByName: string | null;
+  // Claim (temporary work lock)
+  claimedByUserId: string | null;
+  claimedByName: string | null;
+  claimedAt: Date | null;
+  isClaimed: boolean;
+  // Formal assignment (source native assignee)
+  assignedToUserId: string | null;
+  assignedToName: string | null;
+  isAssigned: boolean;
+  /**
+   * Effective queue ownership for filters:
+   * CLAIM_OVERLAY → claim holder; NATIVE_ASSIGN → assignee.
+   * Prefer claimedBy* / assignedTo* for display.
+   */
   ownerUserId: string | null;
   ownerName: string | null;
-  isClaimed: boolean;
   isMine: boolean;
+  /** @deprecated Prefer assignedToUserId / claimedByUserId */
+  assigneeId: string | null;
+  /** @deprecated Prefer assignedToName / claimedByName */
+  assigneeName: string | null;
   isSnoozedForCurrentUser: boolean;
   snoozedUntil: Date | null;
   // Contractual SLA (INCIDENT only)

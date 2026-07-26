@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState, useTransition } from "react";
+import { useMemo, useState, useTransition } from "react";
 import {
   acknowledgeSecurityEventAction,
   dismissSecurityEventAction,
@@ -16,6 +16,10 @@ import {
   SecurityEventStatusBadge,
 } from "@/components/security-events/security-event-badges";
 import { SecurityEventInvestigationPanel } from "@/components/security-events/security-event-investigation-panel";
+import { PageBreadcrumbs } from "@/components/workflow/page-breadcrumbs";
+import { RelatedObjectsPanel } from "@/components/workflow/related-objects-panel";
+import { WorkflowQuickActions } from "@/components/workflow/workflow-quick-actions";
+import { WorkflowTrail } from "@/components/workflow/workflow-trail";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -25,6 +29,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { formatDateTime } from "@/lib/utils";
+import { buildWorkflowStages } from "@/lib/workflow/workflow-context";
 import type { SecurityEventDetail } from "@/types/security-events";
 
 interface SecurityEventDetailViewProps {
@@ -72,10 +77,120 @@ export function SecurityEventDetailView({
   const mitreTechniques = jsonArray(event.mitreTechniques);
   const hasMitre = mitreTactics.length > 0 || mitreTechniques.length > 0;
 
+  const primaryInvestigation =
+    event.investigationHandoff?.linked?.[0] ?? null;
+  const primaryIncident = event.linkedIncidents[0] ?? null;
+
+  const workflowStages = useMemo(
+    () =>
+      buildWorkflowStages({
+        current: "security-event",
+        securityEvent: { id: event.id, title: event.title },
+        investigation: primaryInvestigation
+          ? {
+              id: primaryInvestigation.id,
+              title: primaryInvestigation.title,
+            }
+          : null,
+        incident: primaryIncident
+          ? {
+              id: primaryIncident.incidentId,
+              title: primaryIncident.title,
+            }
+          : null,
+      }),
+    [event.id, event.title, primaryInvestigation, primaryIncident]
+  );
+
+  const relatedObjects = useMemo(() => {
+    const items: {
+      id: string;
+      kind: "asset" | "investigation" | "incident";
+      label: string;
+      href: string;
+      meta?: string;
+    }[] = [];
+    if (event.assetId && event.assetName) {
+      items.push({
+        id: event.assetId,
+        kind: "asset",
+        label: event.assetName,
+        href: `/assets/${event.assetId}`,
+        meta: "Asset",
+      });
+    }
+    for (const inv of event.investigationHandoff?.linked ?? []) {
+      items.push({
+        id: inv.id,
+        kind: "investigation",
+        label: inv.title,
+        href: `/investigations/${inv.id}`,
+        meta: inv.status,
+      });
+    }
+    for (const inc of event.linkedIncidents) {
+      items.push({
+        id: inc.incidentId,
+        kind: "incident",
+        label: inc.title,
+        href: `/incidents/${inc.incidentId}`,
+        meta: inc.status,
+      });
+    }
+    return items;
+  }, [event]);
+
+  const quickActions = useMemo(() => {
+    const actions: {
+      id: string;
+      label: string;
+      href: string;
+      available: boolean;
+    }[] = [];
+    if (primaryInvestigation) {
+      actions.push({
+        id: "open-inv",
+        label: "Open Investigation",
+        href: `/investigations/${primaryInvestigation.id}`,
+        available: true,
+      });
+    }
+    if (primaryIncident) {
+      actions.push({
+        id: "open-inc",
+        label: "Open Incident",
+        href: `/incidents/${primaryIncident.incidentId}`,
+        available: true,
+      });
+    }
+    if (event.assetId) {
+      actions.push({
+        id: "open-asset",
+        label: "Open Asset",
+        href: `/assets/${event.assetId}`,
+        available: true,
+      });
+    }
+    actions.push({
+      id: "attention",
+      label: "Attention queue",
+      href: "/attention",
+      available: true,
+    });
+    return actions;
+  }, [primaryInvestigation, primaryIncident, event.assetId]);
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-        <div>
+        <div className="space-y-3">
+          <PageBreadcrumbs
+            items={[
+              { label: "Security Events", href: "/security-events" },
+              { label: event.title.slice(0, 48) },
+            ]}
+          />
+          <WorkflowTrail stages={workflowStages} />
           <div className="flex flex-wrap items-center gap-2">
             <SecurityEventSeverityBadge severity={event.severity} />
             <SecurityEventClassificationBadge
@@ -86,10 +201,10 @@ export function SecurityEventDetailView({
               {event.source}
             </span>
           </div>
-          <h1 className="mt-2 text-2xl font-semibold text-foreground">
+          <h1 className="text-2xl font-semibold text-foreground">
             {event.title}
           </h1>
-          <p className="mt-1 text-sm text-muted">
+          <p className="text-sm text-muted">
             {event.summary ?? `Event ID: ${event.id}`}
           </p>
         </div>
@@ -114,8 +229,9 @@ export function SecurityEventDetailView({
                 onClick={() =>
                   run(() => acknowledgeSecurityEventAction(event.id))
                 }
+                title="Triage status → ACKNOWLEDGED (leaves Attention queue). Distinct from Attention Acknowledge."
               >
-                Acknowledge
+                Acknowledge (triage)
               </Button>
             )}
             {event.status !== "ESCALATED" && (
@@ -144,11 +260,93 @@ export function SecurityEventDetailView({
         )}
       </div>
 
+      <div className="grid gap-4 lg:grid-cols-2">
+        <RelatedObjectsPanel
+          title="Related objects"
+          objects={relatedObjects}
+          emptyTitle="No Investigation or Incident yet"
+          emptyDescription="This event is not linked into the analyst workflow spine."
+        />
+        <WorkflowQuickActions actions={quickActions} />
+      </div>
+
       {error && (
         <div className="rounded-md border border-severity-critical/30 bg-severity-critical/10 px-4 py-2 text-sm text-severity-critical">
           {error}
         </div>
       )}
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Ownership</CardTitle>
+          <CardDescription>
+            Acknowledged = reviewed · Claimed = temporary work lock · Assigned =
+            formal investigation ownership
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <dl className="grid gap-3 sm:grid-cols-2">
+            <div>
+              <dt className="text-xs uppercase tracking-wide text-muted">
+                Triage status
+              </dt>
+              <dd className="mt-1 text-sm text-foreground">{event.status}</dd>
+            </div>
+            <div>
+              <dt className="text-xs uppercase tracking-wide text-muted">
+                Triage acknowledged at
+              </dt>
+              <dd className="mt-1 text-sm text-foreground">
+                {event.acknowledgedAt
+                  ? formatDateTime(event.acknowledgedAt)
+                  : "—"}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-xs uppercase tracking-wide text-muted">
+                In Attention queue
+              </dt>
+              <dd className="mt-1 text-sm text-foreground">
+                {event.ownership.inAttentionQueue ? "Yes" : "No"}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-xs uppercase tracking-wide text-muted">
+                Attention acknowledged
+              </dt>
+              <dd className="mt-1 text-sm text-foreground">
+                {event.ownership.acknowledgedAt
+                  ? `${event.ownership.acknowledgedByName ?? "Analyst"} · ${formatDateTime(event.ownership.acknowledgedAt)}`
+                  : "—"}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-xs uppercase tracking-wide text-muted">
+                Claimed by
+              </dt>
+              <dd className="mt-1 text-sm text-foreground">
+                {event.ownership.claimedByName
+                  ? `${event.ownership.claimedByName}${
+                      event.ownership.claimedAt
+                        ? ` · ${formatDateTime(event.ownership.claimedAt)}`
+                        : ""
+                    }`
+                  : "Unclaimed"}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-xs uppercase tracking-wide text-muted">
+                Investigation assigned to
+              </dt>
+              <dd className="mt-1 text-sm text-foreground">
+                {event.investigationHandoff?.linked[0]?.assignedToName ||
+                  event.investigationHandoff?.suggestedOwner?.name ||
+                  "—"}
+              </dd>
+            </div>
+          </dl>
+        </CardContent>
+      </Card>
 
       {showDismiss && (
         <Card>

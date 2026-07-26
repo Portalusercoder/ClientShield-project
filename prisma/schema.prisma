@@ -302,6 +302,12 @@ enum SecurityEventActivityType {
   INVESTIGATION_LINKED
   INVESTIGATION_SUGGESTION_ACCEPTED
   INVESTIGATION_SUGGESTION_DISMISSED
+  /// Attention overlay review flag (not triage status ACKNOWLEDGED).
+  ATTENTION_ACKNOWLEDGED
+  /// Temporary Attention work lock.
+  ATTENTION_CLAIMED
+  ATTENTION_CLAIM_RELEASED
+  ATTENTION_CLAIM_TRANSFERRED
 }
 
 enum WazuhProcessedDisposition {
@@ -352,8 +358,15 @@ enum CorrelationConfidence {
 
 enum InvestigationStatus {
   OPEN
+  /// Legacy in-progress state; prefer IN_PROGRESS for new transitions.
   INVESTIGATING
+  /// Recommended operational in-progress state (forward-compatible).
+  IN_PROGRESS
+  /// Waiting on external input / deferred analyst work.
+  PENDING
   CONFIRMED
+  /// Analyst resolution recorded; may still close formally.
+  RESOLVED
   DISMISSED
   LINKED_TO_INCIDENT
   CLOSED
@@ -377,6 +390,22 @@ enum InvestigationActivityType {
   LINKED_TO_INCIDENT
   INCIDENT_CREATED
   NOTE_ADDED
+  NOTE_EDITED
+  NOTE_DELETED
+  ASSIGNED
+  REASSIGNED
+  UNASSIGNED
+  /// Temporary Attention work lock (distinct from formal ASSIGNED).
+  CLAIMED
+  CLAIM_RELEASED
+  CLAIM_TRANSFERRED
+  FINDING_CREATED
+  FINDING_LINKED
+  FINDING_UNLINKED
+  STATUS_CHANGED
+  RESOLVED
+  CLOSED
+  REOPENED
 }
 
 enum ThreatIntelLookupStatus {
@@ -523,6 +552,7 @@ model Organization {
   investigationGroupEvents InvestigationGroupEvent[]
   investigationGroupIncidents InvestigationGroupIncident[]
   investigationActivities InvestigationActivity[]
+  investigationNotes     InvestigationNote[]
   threatIntelLookups     ThreatIntelLookup[]
   iotDevices             IoTDevice[]
   reports                Report[]
@@ -538,6 +568,7 @@ model Organization {
   incidentSlaSnapshots   IncidentSlaSnapshot[]
   notifications          Notification[]
   notificationRecipients NotificationRecipient[]
+  notificationPreferences NotificationPreference[]
   escalationEvents       EscalationEvent[]
 }
 
@@ -584,8 +615,13 @@ model User {
   incidentSecurityEventLinks IncidentSecurityEvent[] @relation("IncidentSecurityEventLinker")
   investigationGroupsCreated InvestigationGroup[] @relation("InvestigationGroupCreator")
   investigationGroupsAssigned InvestigationGroup[] @relation("InvestigationGroupAssignee")
+  investigationGroupsClosed   InvestigationGroup[] @relation("InvestigationGroupCloser")
+  investigationGroupsReopened InvestigationGroup[] @relation("InvestigationGroupReopener")
   investigationActivities   InvestigationActivity[] @relation("InvestigationActivityActor")
   investigationGroupEventsAdded InvestigationGroupEvent[] @relation("InvestigationGroupEventAdder")
+  investigationNotesAuthored InvestigationNote[] @relation("InvestigationNoteAuthor")
+  investigationNotesDeleted  InvestigationNote[] @relation("InvestigationNoteDeleter")
+  investigationFindingsLinked Finding[] @relation("InvestigationFindingLinker")
   threatIntelLookupsRequested ThreatIntelLookup[] @relation("ThreatIntelLookupRequester")
   correlationCandidatesReviewed CorrelationCandidate[] @relation("CorrelationCandidateReviewer")
   clientUserAccesses            ClientUserAccess[]     @relation("ClientUserAccessUser")
@@ -593,6 +629,7 @@ model User {
   attentionClaimed              SocAttentionState[]    @relation("AttentionClaimedBy")
   attentionSnoozes              SocAttentionUserSnooze[] @relation("AttentionSnoozeUser")
   notificationRecipients        NotificationRecipient[] @relation("NotificationRecipientUser")
+  notificationPreferences       NotificationPreference[] @relation("NotificationPreferenceUser")
 
   @@unique([organizationId, email])
   @@index([organizationId])
@@ -850,6 +887,11 @@ model Finding {
   businessImpact          BusinessImpact?
   exploitabilityAssessment ExploitabilityAssessment?
   remediationComplexity   RemediationComplexity?
+  /// Primary Investigation that produced / owns this Finding (Phase 6b4).
+  /// One Finding → one primary Investigation; Investigation → many Findings.
+  investigationGroupId    String?
+  investigationLinkedAt   DateTime?
+  investigationLinkedByUserId String?
   createdAt               DateTime       @default(now())
   updatedAt               DateTime       @updatedAt
 
@@ -860,6 +902,8 @@ model Finding {
   assignedTo               User?             @relation("FindingAssignee", fields: [assignedToUserId], references: [id], onDelete: SetNull)
   acceptedRiskApprovedBy   User?             @relation("FindingRiskApprover", fields: [acceptedRiskApprovedByUserId], references: [id], onDelete: SetNull)
   validatedBy              User?             @relation("FindingValidator", fields: [validatedByUserId], references: [id], onDelete: SetNull)
+  investigationGroup       InvestigationGroup? @relation(fields: [investigationGroupId], references: [id], onDelete: SetNull)
+  investigationLinkedBy    User?             @relation("InvestigationFindingLinker", fields: [investigationLinkedByUserId], references: [id], onDelete: SetNull)
   remediationTasks         RemediationTask[]
   instances                FindingInstance[]
   incidentLinks            IncidentFinding[]
@@ -876,6 +920,8 @@ model Finding {
   @@index([triagePriority])
   @@index([validatedByUserId])
   @@index([organizationId, assetId, code])
+  @@index([investigationGroupId])
+  @@index([organizationId, investigationGroupId])
 }
 
 /**
@@ -1600,6 +1646,8 @@ model InvestigationGroup {
   createdByUserId      String?
   /// Optional analyst assignee (Attention claim inheritance on SE→Inv create).
   assignedToUserId     String?
+  /// When the current assignee was last set (null when unassigned).
+  assignedAt           DateTime?
   /// Human-readable explanation of why events were grouped.
   groupingExplanation  String?
   /// Aggregate confidence from correlation quality model (nullable for older rows).
@@ -1615,15 +1663,26 @@ model InvestigationGroup {
   confirmedAt          DateTime?
   dismissedAt          DateTime?
   dismissReason        String?
+  /// Last closure resolution summary (retained across reopen for auditability).
+  resolutionSummary    String?
+  closedAt             DateTime?
+  closedByUserId       String?
+  reopenedAt           DateTime?
+  reopenedByUserId     String?
+  lastReopenReason     String?
   createdAt            DateTime                    @default(now())
   updatedAt            DateTime                    @updatedAt
 
   organization Organization                @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   createdBy    User?                       @relation("InvestigationGroupCreator", fields: [createdByUserId], references: [id], onDelete: SetNull)
   assignedTo   User?                       @relation("InvestigationGroupAssignee", fields: [assignedToUserId], references: [id], onDelete: SetNull)
+  closedBy     User?                       @relation("InvestigationGroupCloser", fields: [closedByUserId], references: [id], onDelete: SetNull)
+  reopenedBy   User?                       @relation("InvestigationGroupReopener", fields: [reopenedByUserId], references: [id], onDelete: SetNull)
   events       InvestigationGroupEvent[]
   incidents    InvestigationGroupIncident[]
   activities   InvestigationActivity[]
+  notes        InvestigationNote[]
+  findings     Finding[]
   correlationCandidates CorrelationCandidate[]
 
   @@index([organizationId])
@@ -1635,6 +1694,31 @@ model InvestigationGroup {
   @@index([fingerprint])
   @@index([organizationId, fingerprint])
   @@index([assignedToUserId])
+  @@index([closedAt])
+}
+
+/// Analyst collaboration notes on an investigation (soft-delete preferred).
+model InvestigationNote {
+  id             String    @id @default(cuid())
+  organizationId String
+  groupId        String
+  authorUserId   String
+  content        String
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  editedAt       DateTime?
+  deletedAt      DateTime?
+  deletedByUserId String?
+
+  organization Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  group        InvestigationGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  author       User              @relation("InvestigationNoteAuthor", fields: [authorUserId], references: [id], onDelete: Cascade)
+  deletedBy    User?             @relation("InvestigationNoteDeleter", fields: [deletedByUserId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId])
+  @@index([groupId])
+  @@index([createdAt])
+  @@index([groupId, deletedAt])
 }
 
 model InvestigationGroupEvent {
@@ -1819,6 +1903,10 @@ model AuditLog {
 
 /// Shared SOC acknowledgement / overlay claim for the derived attention queue.
 /// Queue eligibility remains derived from source records — this never resurrects ineligible sources.
+///
+/// ACKNOWLEDGED (acknowledgedAt) = reviewed; does not imply claim/assign; does not remove from queue.
+/// CLAIMED (claimedByUserId) = temporary work lock for SECURITY_EVENT / INVESTIGATION only.
+/// Formal ASSIGNED lives on Finding / Incident / InvestigationGroup.assignedToUserId.
 enum AttentionSourceType {
   SECURITY_EVENT
   FINDING
@@ -1835,7 +1923,8 @@ model SocAttentionState {
   eligibilityGeneration String
   acknowledgedAt        DateTime?
   acknowledgedByUserId  String?
-  /// Authoritative only for SECURITY_EVENT and INVESTIGATION overlay claims.
+  /// Authoritative claim lock for SECURITY_EVENT and INVESTIGATION only.
+  /// Finding/Incident Attention "claim" delegates to native assignment instead.
   claimedByUserId       String?
   claimedAt             DateTime?
   createdAt             DateTime            @default(now())
@@ -1964,8 +2053,13 @@ enum NotificationSourceType {
 enum NotificationType {
   INCIDENT_CREATED_CRITICAL
   INCIDENT_ASSIGNED
+  INCIDENT_RESOLVED
   FINDING_ASSIGNED
+  FINDING_CREATED
   INVESTIGATION_CONFIRMED
+  INVESTIGATION_ASSIGNED
+  INVESTIGATION_REOPENED
+  CLAIM_TRANSFERRED
   SLA_MTTA_HALF
   SLA_MTTA_APPROACHING
   SLA_MTTA_BREACHED
@@ -1973,6 +2067,14 @@ enum NotificationType {
   SLA_MTTC_BREACHED
   SLA_MTTR_APPROACHING
   SLA_MTTR_BREACHED
+}
+
+/// Delivery channel for preferences (Phase 6b5). Only IN_APP is produced today.
+enum NotificationChannel {
+  IN_APP
+  EMAIL
+  SLACK
+  WEBHOOK
 }
 
 enum EscalationTriggerType {
@@ -2041,6 +2143,27 @@ model NotificationRecipient {
   @@index([organizationId, userId, readAt])
   @@index([organizationId, userId, dismissedAt])
   @@index([userId, dismissedAt])
+}
+
+/// Future-ready per-user channel preferences (Phase 6b5).
+/// No email/Slack/webhook delivery in this phase — store only.
+/// Missing row = channel default (IN_APP on; EMAIL/SLACK/WEBHOOK off).
+model NotificationPreference {
+  id             String              @id @default(cuid())
+  organizationId String
+  userId         String
+  eventType      NotificationType
+  channel        NotificationChannel
+  enabled        Boolean             @default(true)
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user         User         @relation("NotificationPreferenceUser", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, userId, eventType, channel])
+  @@index([organizationId, userId])
+  @@index([organizationId, eventType, channel])
 }
 
 /// Idempotent SLA escalation ledger. Notification fan-out is separate.

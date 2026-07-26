@@ -86,6 +86,17 @@ export interface FindingDetail extends FindingListItem {
   createdAt: Date;
   updatedAt: Date;
   organizationId: string;
+  /** Primary Investigation (Phase 6b4). */
+  investigationGroupId: string | null;
+  investigation: {
+    id: string;
+    title: string;
+    status: string;
+    severity: string;
+    linkedAt: Date | null;
+  } | null;
+  /** Related SE IDs recorded when created from an investigation. */
+  relatedSecurityEventIds: string[];
   /** ZAP confidence label when present (separate from severity). */
   risk: string | null;
   pluginId: string | null;

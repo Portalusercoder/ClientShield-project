@@ -32,6 +32,7 @@ import { checkWazuhIndexerHealth } from "@/services/wazuh/wazuh-indexer-client.s
 import { checkWazuhManagerHealth } from "@/services/wazuh/wazuh-manager-client.service";
 import { recordSecurityEventActivity } from "@/services/security-events/security-event-activity.service";
 import { getSecurityEventInvestigationHandoff } from "@/services/investigations/se-investigation-handoff.service";
+import { getAttentionOwnershipSnapshot } from "@/services/attention/attention-state.service";
 
 const ACTIVE_STATUSES: SecurityEventStatus[] = [
   "NEW",
@@ -232,7 +233,7 @@ export async function getSecurityEventDetail(
   });
   if (!event) return null;
 
-  const [agentMapping, linkableIncidents, investigationHandoff] =
+  const [agentMapping, linkableIncidents, investigationHandoff, ownershipSnap] =
     await Promise.all([
       event.agentId
         ? prisma.wazuhAgentMapping.findUnique({
@@ -258,6 +259,11 @@ export async function getSecurityEventDetail(
           })
         : Promise.resolve([]),
       getSecurityEventInvestigationHandoff(organizationId, id),
+      getAttentionOwnershipSnapshot({
+        organizationId,
+        sourceType: "SECURITY_EVENT",
+        sourceId: id,
+      }),
     ]);
 
   return {
@@ -334,6 +340,14 @@ export async function getSecurityEventDetail(
       severity: i.severity,
     })),
     investigationHandoff,
+    ownership: {
+      inAttentionQueue: ownershipSnap.eligible,
+      acknowledgedAt: ownershipSnap.acknowledgedAt,
+      acknowledgedByName: ownershipSnap.acknowledgedByName,
+      claimedByUserId: ownershipSnap.claimedByUserId,
+      claimedByName: ownershipSnap.claimedByName,
+      claimedAt: ownershipSnap.claimedAt,
+    },
     createdAt: event.createdAt,
     updatedAt: event.updatedAt,
   };

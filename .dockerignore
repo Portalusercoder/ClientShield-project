@@ -1,0 +1,39 @@
+# Dependencies & build artifacts
+node_modules
+npm-debug.log*
+.next
+out
+build
+coverage
+*.tsbuildinfo
+
+# Git / IDE / OS
+.git
+.gitignore
+.cursor
+.vscode
+.idea
+.DS_Store
+*.pem
+
+# Env & secrets (never bake)
+.env
+.env.*
+!.env.example
+
+# Docs / tests / local tooling (not required in image build context size)
+agent-transcripts
+canvases
+storage/reports
+*.md
+!README.md
+
+# Compose / nginx live outside the image (mounted at runtime)
+compose*.yaml
+compose*.yml
+docker-compose*.yml
+docker-compose*.yaml
+nginx
+
+# Misc
+.dockerignore
