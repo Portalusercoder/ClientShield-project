@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Suspense } from "react";
 import { ReportsPageClient } from "@/components/reports/reports-page-client";
+import { ReportExportGenerator } from "@/components/reports/report-export-generator";
 import { hasMinimumRole, requireSession } from "@/lib/auth";
 import { listReports } from "@/services/reports/report.service";
 import type { ReportStatus, ReportType } from "@prisma/client";
@@ -33,16 +34,22 @@ export default async function ReportsPage({ searchParams }: ReportsPageProps) {
 
   return (
     <Suspense fallback={<div className="text-sm text-muted">Loading…</div>}>
-      <ReportsPageClient
-        reports={data.reports}
-        total={data.total}
-        clients={data.clients}
-        canGenerate={hasMinimumRole(session, "ANALYST")}
-        canArchive={hasMinimumRole(session, "ADMIN")}
-        currentClientId={clientId}
-        currentType={reportType}
-        currentStatus={status}
-      />
+      <div className="space-y-8">
+        <ReportExportGenerator
+          clients={data.clients}
+          canExport={hasMinimumRole(session, "VIEWER")}
+        />
+        <ReportsPageClient
+          reports={data.reports}
+          total={data.total}
+          clients={data.clients}
+          canGenerate={hasMinimumRole(session, "ANALYST")}
+          canArchive={hasMinimumRole(session, "ADMIN")}
+          currentClientId={clientId}
+          currentType={reportType}
+          currentStatus={status}
+        />
+      </div>
     </Suspense>
   );
 }
