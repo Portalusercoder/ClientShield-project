@@ -3,6 +3,7 @@ import {
   resolveAuthRuntimeMode,
   assertProductionAuthConfigured,
 } from "@/lib/auth/auth-config";
+import { isDevBypassSignedOut } from "@/lib/auth/dev-bypass-logout";
 import { loadDevBypassUser, resolveUserByExternalId, toAuthSession } from "@/lib/auth/identity-mapping";
 import { DEV_USER_ID } from "@/lib/dev-constants";
 import { bindObservabilityContext } from "@/lib/observability/context";
@@ -12,7 +13,8 @@ import { AuthorizationError } from "@/lib/observability/errors-core";
 /**
  * Resolves the current authenticated ClientShield session.
  *
- * - development + AUTH_DEV_BYPASS=true → DB user DEV_USER_ID (role from DB)
+ * - development + AUTH_DEV_BYPASS=true → DB user DEV_USER_ID (role from DB),
+ *   unless the local signed-out cookie is set
  * - Auth0 mode → Auth.js session subject → User.externalId lookup
  * - production misconfigured → fail closed
  *
@@ -34,6 +36,9 @@ export async function getSession(): Promise<AuthSession | null> {
   }
 
   if (mode === "dev_bypass") {
+    if (await isDevBypassSignedOut()) {
+      return null;
+    }
     try {
       return await loadDevBypassUser({ userId: DEV_USER_ID });
     } catch {

@@ -5,6 +5,7 @@ import {
   resolveAuthRuntimeMode,
   sanitizeReturnTo,
 } from "@/lib/auth/auth-config";
+import { hasDevBypassSignedOutCookie } from "@/lib/auth/dev-bypass-logout";
 import { applySecurityHeaders } from "@/lib/security/headers";
 import { extractClientIp } from "@/lib/security/client-ip";
 import { getSecurityConfig } from "@/lib/security/config";
@@ -126,12 +127,21 @@ export async function middleware(request: NextRequest) {
     request: { headers: requestHeaders },
   });
   applyCommonHeaders(response, requestId, correlationId);
+  // Prevent bfcache / browser cache from resurrecting authenticated HTML after logout.
+  response.headers.set(
+    "Cache-Control",
+    "private, no-store, max-age=0, must-revalidate"
+  );
 
   if (isPublicPath(pathname)) {
     return response;
   }
 
-  if (isAuthDevBypassEnabled()) {
+  // Dev bypass is an always-on session unless the user explicitly signed out.
+  if (
+    isAuthDevBypassEnabled() &&
+    !hasDevBypassSignedOutCookie((name) => request.cookies.get(name))
+  ) {
     return response;
   }
 
@@ -144,6 +154,10 @@ export async function middleware(request: NextRequest) {
       url.searchParams.set("reason", "misconfigured");
       const redirect = NextResponse.redirect(url);
       applyCommonHeaders(redirect, requestId, correlationId);
+      redirect.headers.set(
+        "Cache-Control",
+        "private, no-store, max-age=0, must-revalidate"
+      );
       return redirect;
     }
   }
@@ -171,6 +185,10 @@ export async function middleware(request: NextRequest) {
     );
     const redirect = NextResponse.redirect(url);
     applyCommonHeaders(redirect, requestId, correlationId);
+    redirect.headers.set(
+      "Cache-Control",
+      "private, no-store, max-age=0, must-revalidate"
+    );
     return redirect;
   }
 

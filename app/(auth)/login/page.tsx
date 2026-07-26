@@ -2,11 +2,13 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { signIn } from "@/auth";
+import { continueDevBypassAction } from "@/app/(auth)/actions";
 import {
   isAuthDevBypassEnabled,
   resolveAuthRuntimeMode,
   sanitizeReturnTo,
 } from "@/lib/auth/auth-config";
+import { clearDevBypassSignedOut } from "@/lib/auth/dev-bypass-logout";
 import { getSession } from "@/lib/auth/session";
 import { Button } from "@/components/ui/button";
 
@@ -36,6 +38,7 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
 
   async function startAuth0Login() {
     "use server";
+    await clearDevBypassSignedOut();
     await signIn("auth0", { redirectTo: returnTo });
   }
 
@@ -73,15 +76,15 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
         ) : bypass ? (
           <div className="space-y-4 text-sm text-muted">
             <p>
-              Development bypass is enabled (`AUTH_DEV_BYPASS`). Open the app
-              directly — no IdP login required.
+              Development bypass is enabled (`AUTH_DEV_BYPASS`). Sign out ends
+              the local bypass session until you continue below.
             </p>
-            <Link
-              href={returnTo}
-              className="inline-flex h-10 w-full items-center justify-center rounded-[6px] border border-border bg-surface text-sm font-medium text-foreground shadow-sm transition-colors hover:bg-surface-elevated focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-            >
-              Continue to app
-            </Link>
+            <form action={continueDevBypassAction}>
+              <input type="hidden" name="returnTo" value={returnTo} />
+              <Button type="submit" className="w-full" size="lg">
+                Continue to app
+              </Button>
+            </form>
           </div>
         ) : (
           <div className="space-y-2 text-sm text-danger">
