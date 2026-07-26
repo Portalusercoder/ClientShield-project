@@ -26,7 +26,7 @@ function messageFor(reason: string | undefined): { title: string; body: string }
     case "misconfigured":
       return {
         title: "Authentication unavailable",
-        body: "This environment is missing a valid authentication configuration. Production refuses to operate until Auth0 and AUTH_SECRET are configured.",
+        body: "This environment is missing a valid authentication configuration. For local development set AUTH_DEV_BYPASS=true with NODE_ENV=development (and NEXT_PUBLIC_APP_URL on localhost). Production requires Auth0 and AUTH_SECRET.",
       };
     case "forbidden":
       return {

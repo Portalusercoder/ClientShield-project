@@ -137,7 +137,8 @@ export async function middleware(request: NextRequest) {
 
   const mode = resolveAuthRuntimeMode();
   if (mode === "misconfigured") {
-    if (process.env.NODE_ENV === "production") {
+    // Edge may report NODE_ENV=production under `next dev`; skip when local bypass applies.
+    if (process.env.NODE_ENV === "production" && !isAuthDevBypassEnabled()) {
       const url = request.nextUrl.clone();
       url.pathname = "/unauthorized";
       url.searchParams.set("reason", "misconfigured");

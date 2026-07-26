@@ -2,7 +2,8 @@
  * Authentication environment helpers (Phase 5).
  *
  * Production MUST fail closed when Auth0/Auth.js is misconfigured.
- * AUTH_DEV_BYPASS is ignored unless NODE_ENV === "development".
+ * AUTH_DEV_BYPASS is local-only: development Node, or local App URL when Edge
+ * middleware inlines NODE_ENV=production under `next dev`.
  */
 import { z } from "zod";
 
@@ -16,11 +17,39 @@ function isDevelopmentNodeEnv(): boolean {
   return process.env.NODE_ENV === "development";
 }
 
-/** Explicit local-only bypass. Never honored in production. */
+/** True when NEXT_PUBLIC_APP_URL points at a local loopback host. */
+export function isLocalAppUrl(): boolean {
+  const raw = (process.env.NEXT_PUBLIC_APP_URL ?? "").trim().toLowerCase();
+  if (!raw) return false;
+  try {
+    const host = new URL(raw).hostname;
+    return host === "localhost" || host === "127.0.0.1" || host === "::1";
+  } catch {
+    return (
+      raw.includes("://localhost") ||
+      raw.includes("://127.0.0.1") ||
+      raw.includes("://[::1]")
+    );
+  }
+}
+
+/**
+ * Explicit local-only bypass.
+ * Never honored for non-local production deployments.
+ *
+ * Edge middleware may see NODE_ENV=production even under `next dev` (bundler
+ * inline). Allow bypass when AUTH_DEV_BYPASS=true and App URL is local.
+ */
 export function isAuthDevBypassEnabled(): boolean {
-  if (isProductionNodeEnv()) return false;
-  if (!isDevelopmentNodeEnv()) return false;
-  return process.env.AUTH_DEV_BYPASS === "true";
+  if (process.env.AUTH_DEV_BYPASS !== "true") return false;
+
+  if (isDevelopmentNodeEnv()) return true;
+
+  // Edge/`next start` may report production — only allow on local App URL.
+  // Real production hosts must not set AUTH_DEV_BYPASS (startup also refuses).
+  if (isProductionNodeEnv() && isLocalAppUrl()) return true;
+
+  return false;
 }
 
 export function getAuthSecret(): string | undefined {
