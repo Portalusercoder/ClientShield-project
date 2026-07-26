@@ -2,7 +2,7 @@
 
 ClientShield is a multi-tenant cybersecurity monitoring and vulnerability management platform built for companies that develop websites and provide IoT solutions.
 
-This repository contains the **MVP application foundation** — a secure, scalable architecture with dashboard UI, database schema, and authentication-ready structure. Active vulnerability scanning, IoT scanning, and third-party scanner integrations are intentionally **not** implemented yet.
+This repository contains the application foundation — secure multi-tenant workflows, Auth0 authentication, Wazuh/ZAP integrations, and a production deployment baseline (Docker, Compose, nginx). See [DEPLOYMENT.md](./DEPLOYMENT.md) and [PRODUCTION.md](./PRODUCTION.md) for first production deploy.
 
 ## What ClientShield Will Do
 
@@ -12,42 +12,42 @@ This repository contains the **MVP application foundation** — a secure, scalab
 - Calculate security posture scores
 - Manage security incidents and generate reports
 - Maintain IoT device inventories
-- Integrate authorized security scanning tools (future)
+- Integrate authorized security scanning tools
 
 ## Technology Stack
 
 | Layer | Technology |
 |-------|------------|
 | Frontend | Next.js 15 (App Router), TypeScript, Tailwind CSS 4 |
-| Backend | Next.js API Routes (structured for future NestJS extraction) |
+| Backend | Next.js API Routes + Server Actions |
 | Database | PostgreSQL with Prisma ORM |
 | Validation | Zod |
-| Authentication | Modular auth-ready architecture (IdP integration pending) |
+| Authentication | Auth.js (NextAuth v5) + Auth0 (production fail-closed) |
+| Deployment | Docker multi-stage image, Compose, nginx reverse proxy |
 
 ## Project Structure
 
 ```
 app/                  # Next.js App Router pages and API routes
   (dashboard)/        # Main application sections
-  api/                # Server-side API endpoints
+  api/                # Server-side API endpoints (includes /api/health)
 components/           # Reusable UI and layout components
-  dashboard/          # Dashboard-specific components
-  layout/             # Sidebar, header, shell layout
-  ui/                 # Generic UI primitives
-lib/                  # Shared utilities, auth, validations, mock data
-  auth/               # Authentication module (IdP-ready)
-  mock-data/          # Clearly marked mock data for MVP
-  validations/        # Zod schemas for server-side validation
+lib/                  # Shared utilities, auth, validations, startup
+  auth/               # Auth.js + Auth0 helpers
+  startup/            # Production startup validation
 prisma/               # Database schema and migrations
-services/             # Business logic layer (NestJS-extractable)
-types/                # Shared TypeScript types
+services/             # Business logic layer
+workers/              # Background workers (Wazuh sync, SLA escalation)
+nginx/                # Production reverse proxy config
+scripts/              # Entrypoint, backups, tests
 ```
 
 ## Prerequisites
 
 - **Node.js** 20.x or later
 - **npm** 10.x or later
-- **PostgreSQL** 14.x or later
+- **PostgreSQL** 14.x or later (or Docker Compose)
+- **Docker** + Compose (for ZAP, production stack)
 
 ## Installation
 
@@ -61,6 +61,20 @@ npm install
 ```
 
 ## PostgreSQL Setup
+
+### Local Docker (recommended for development)
+
+```bash
+docker compose up -d postgres
+```
+
+Default connection (matches `.env.example`):
+
+```
+postgresql://clientshield_dev:clientshield_dev_password@localhost:5432/clientshield?schema=public
+```
+
+### Manual Postgres
 
 1. Create a PostgreSQL database:
 
@@ -91,11 +105,16 @@ cp .env.example .env
 | `DATABASE_URL` | PostgreSQL connection string | Yes |
 | `NODE_ENV` | `development`, `test`, or `production` | Yes |
 | `NEXT_PUBLIC_APP_NAME` | Application display name | No |
-| `NEXT_PUBLIC_APP_URL` | Public application URL | No |
-| `AUTH_SECRET` | Session/JWT secret (for future auth) | No |
-| `AUTH_PROVIDER` | Identity provider (`none`, `auth0`, `clerk`, `azure-ad`) | No |
+| `NEXT_PUBLIC_APP_URL` | Public application URL (required in production) | Prod |
+| `AUTH_SECRET` | Auth.js session secret | Prod |
+| `AUTH_PROVIDER` | `auth0` in production | Prod |
+| `AUTH0_CLIENT_ID` / `AUTH0_CLIENT_SECRET` / `AUTH0_ISSUER` | Auth0 application | Prod |
+| `AUTH_DEV_BYPASS` | Local-only session bypass (`true` only when `NODE_ENV=development`) | Dev |
+| `BUILD_VERSION` / `GIT_SHA` | Build metadata for `/api/health` | Recommended |
 
 > **Security:** Never commit `.env` files. Real credentials must stay out of version control. The `.gitignore` excludes all `.env*` files except `.env.example`.
+
+Full production variable notes: [DEPLOYMENT.md](./DEPLOYMENT.md).
 
 ## Database Migrations
 
@@ -119,42 +138,68 @@ npm run db:push
 ## Development Server
 
 ```bash
+docker compose up -d          # postgres + zap
 npm run dev
 ```
 
 Open [http://localhost:3001](http://localhost:3001) to view the dashboard.
+
+Health probe (also used in production):
+
+```bash
+curl -sS http://localhost:3001/api/health
+```
+
+## Production deployment (summary)
+
+```bash
+cp .env.example .env.production   # set real secrets + Auth0 + DATABASE_URL
+docker compose -f compose.production.yaml --env-file .env.production up -d --build
+curl -sS http://127.0.0.1/api/health
+```
+
+Details: [DEPLOYMENT.md](./DEPLOYMENT.md) · [PRODUCTION.md](./PRODUCTION.md)
 
 ## Available Scripts
 
 | Script | Description |
 |--------|-------------|
 | `npm run dev` | Start development server on port 3001 |
-| `npm run build` | Production build |
+| `npm run build` | Production build (standalone output) |
 | `npm run start` | Start production server on port 3001 |
 | `npm run lint` | Run ESLint |
 | `npm run typecheck` | Run TypeScript type checking |
+| `npm run test:observability` | Logger, context, metrics, errors, worker wrappers |
+| `npm run test:health` | Health service / endpoint checks |
+| `npm run test:startup-env` | Production env fail-closed checks |
+| `npm run docker:build` | Build production Docker image |
+| `npm run compose:prod:config` | Validate production Compose file |
 | `npm run db:generate` | Generate Prisma client |
 | `npm run db:migrate` | Run database migrations |
 | `npm run db:push` | Push schema to database (no migration files) |
 | `npm run db:studio` | Open Prisma Studio |
+| `npm run wazuh:worker` | Run Wazuh sync worker |
+| `npm run sla:escalation-worker` | Run SLA escalation worker |
 
 ## Current Project Status
 
 ### Implemented
 
 - Next.js application with App Router and TypeScript
-- Multi-tenant Clients, Assets, Findings, and Remediation workflows
+- Multi-tenant Clients, Assets, Findings, Investigations, Incidents
+- Auth0 / Auth.js authentication (fail-closed in production)
 - Passive website security checks (HTTPS/TLS/headers/cookies)
 - OWASP ZAP **baseline / passive** scanning (spider + passive alerts only — no Active Scan)
-- Findings management with assignment, accepted risk, false positive, and remediation tasks
+- Wazuh read-only ingestion + background workers
+- Production Docker image, Compose, nginx, `/api/health`, backup scripts
 
 ### Not Yet Implemented
 
-- Production identity provider integration (Auth0, Clerk, Azure AD)
+- Automated backups, metrics, tracing, Sentry (post-6P1)
+- Rate limiting, CSP, HSTS (post-6P1)
 - OWASP ZAP Active Scan (intentionally out of scope)
 - CLIENT role read-only portal access (requires client-to-user mapping)
-- Live dashboard sections still marked mock (incidents, remediation metrics chart)
-- IoT device scanning and report generation
+- IoT device scanning (future)
 
 ### Findings recurrence strategy
 
@@ -196,12 +241,12 @@ curl -s "http://127.0.0.1:8090/JSON/core/view/version/?apikey=$ZAP_API_KEY"
 
 ## Security Considerations
 
-- **Secrets:** Server-side environment variables are never exposed to the client. Only `NEXT_PUBLIC_*` variables are browser-accessible.
+- **Secrets:** Server-side environment variables are never exposed to the client. Only `NEXT_PUBLIC_*` variables are browser-accessible. Docker builds do not bake `.env` files.
 - **Tenant isolation:** All business resources belong to an `Organization`. Server-side code must resolve `organizationId` from the authenticated session — never from client-supplied input.
 - **Input validation:** All server inputs must be validated with Zod schemas in `lib/validations/`.
-- **Authentication:** A mock development session is active in `lib/auth/session.ts`. Replace with a production IdP before deployment.
+- **Authentication:** Production uses Auth0 via Auth.js. `AUTH_DEV_BYPASS` works only when `NODE_ENV=development` and is refused in production.
 - **Authorization:** Permission helpers exist in `lib/auth/permissions.ts`. ZAP scans require ANALYST+.
-- **Security headers:** Basic headers (X-Frame-Options, X-Content-Type-Options, Referrer-Policy) are set in `middleware.ts`.
+- **Security headers:** Basic headers (X-Frame-Options, X-Content-Type-Options, Referrer-Policy) are set in middleware and nginx (HSTS/CSP deferred).
 - **No active scanning:** ClientShield does not invoke ZAP Active Scan, fuzzing, or exploitation in this phase.
 
 ## License

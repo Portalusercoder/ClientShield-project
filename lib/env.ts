@@ -172,6 +172,35 @@ const serverEnvSchema = z.object({
     .min(1)
     .max(168)
     .default(24),
+
+  /** Observability (Phase 6P2) */
+  LOG_LEVEL: z.preprocess(
+    (v) =>
+      v == null || v === ""
+        ? undefined
+        : String(v).trim().toUpperCase(),
+    z.enum(["TRACE", "DEBUG", "INFO", "WARN", "ERROR", "FATAL"]).optional()
+  ),
+  LOG_FORMAT: z.preprocess(
+    (v) =>
+      v == null || v === ""
+        ? undefined
+        : String(v).trim().toLowerCase(),
+    z.enum(["json", "pretty"]).optional()
+  ),
+  ENABLE_DEBUG_LOGS: z
+    .enum(["true", "false"])
+    .optional()
+    .transform((v) => v === "true"),
+  ENABLE_REQUEST_LOGGING: z
+    .enum(["true", "false"])
+    .optional()
+    .transform((v) => (v == null ? undefined : v === "true")),
+  ENABLE_METRICS: z
+    .enum(["true", "false"])
+    .optional()
+    .transform((v) => (v == null ? undefined : v === "true")),
+  SLOW_QUERY_MS: z.coerce.number().int().min(50).max(60_000).optional(),
 });
 
 const clientEnvSchema = z.object({
@@ -257,6 +286,19 @@ export const serverEnv = parseEnv(serverEnvSchema, {
   THREAT_INTEL_ENABLED: process.env.THREAT_INTEL_ENABLED,
   THREAT_INTEL_PROVIDER: process.env.THREAT_INTEL_PROVIDER,
   THREAT_INTEL_CACHE_HOURS: process.env.THREAT_INTEL_CACHE_HOURS,
+  LOG_LEVEL: process.env.LOG_LEVEL as
+    | "TRACE"
+    | "DEBUG"
+    | "INFO"
+    | "WARN"
+    | "ERROR"
+    | "FATAL"
+    | undefined,
+  LOG_FORMAT: process.env.LOG_FORMAT as "json" | "pretty" | undefined,
+  ENABLE_DEBUG_LOGS: process.env.ENABLE_DEBUG_LOGS,
+  ENABLE_REQUEST_LOGGING: process.env.ENABLE_REQUEST_LOGGING,
+  ENABLE_METRICS: process.env.ENABLE_METRICS,
+  SLOW_QUERY_MS: process.env.SLOW_QUERY_MS,
 });
 
 /**

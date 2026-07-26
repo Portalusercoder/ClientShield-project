@@ -21,6 +21,7 @@ import {
   countIncidentAssignmentGeneration,
   notifyCriticalIncidentCreated,
   notifyIncidentAssigned,
+  notifyIncidentResolved,
 } from "@/services/notifications/notification-producers.service";
 import {
   createIncidentSlaSnapshot,
@@ -848,6 +849,22 @@ export async function createIncident(input: {
     });
   }
 
+  const { logger, metrics, updateObservabilityContext, workflowCorrelationId } =
+    await import("@/lib/observability");
+  updateObservabilityContext({
+    organizationId,
+    userId: actorId,
+    incidentId: incident.id,
+    correlationId: workflowCorrelationId("incident", incident.id),
+  });
+  metrics.inc("incidents_created");
+  logger.info("incident.created", {
+    action: "createIncident",
+    incidentId: incident.id,
+    severity: data.severity,
+    clientId: data.clientId,
+  });
+
   return { id: incident.id };
 }
 
@@ -1047,6 +1064,20 @@ export async function updateIncidentStatus(input: {
       ...(isReopen ? { reason: reopenReason } : {}),
     },
   });
+
+  if (input.status === "RESOLVED") {
+    await notifyIncidentResolved({
+      organizationId: input.organizationId,
+      incidentId: incident.id,
+      title: incident.title,
+      actorId: input.actorId,
+      assigneeUserId: incident.assignedToUserId,
+      leadAnalystUserId: incident.leadAnalystUserId,
+      commanderUserId: incident.commanderUserId,
+      clientId: incident.clientId,
+      assetId: incident.assetId,
+    });
+  }
 
   // Reopen starts a new SLA generation from CURRENT policy (previous snapshot retained).
   if (isReopen) {

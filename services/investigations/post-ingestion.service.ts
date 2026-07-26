@@ -3,23 +3,9 @@ import { generateCandidatesForEvent } from "@/services/investigations/correlatio
 import { suggestGroupsFromPendingCandidates } from "@/services/investigations/investigation.service";
 import { extractAndLinkObservablesFromSecurityEvent } from "@/services/investigations/observable.service";
 import { serverEnv } from "@/lib/env";
+import { logger } from "@/lib/observability/logger";
 
-function logPost(
-  level: "info" | "warn" | "error",
-  message: string,
-  meta?: object
-) {
-  // eslint-disable-next-line no-console
-  console[level === "info" ? "log" : level](
-    JSON.stringify({
-      ts: new Date().toISOString(),
-      service: "post-ingestion.service",
-      level,
-      message,
-      ...meta,
-    })
-  );
-}
+const logPost = logger.child({ service: "post-ingestion.service" });
 
 /**
  * Post-ingestion hooks for investigation observables + cross-event correlation.
@@ -39,7 +25,7 @@ export async function runPostIngestionInvestigationHooks(
       try {
         await extractAndLinkObservablesFromSecurityEvent(eventId);
       } catch (error) {
-        logPost("warn", "Observable extraction failed (isolated)", {
+        logPost.warn( "Observable extraction failed (isolated)", {
           organizationId,
           eventId,
           error:
@@ -51,7 +37,7 @@ export async function runPostIngestionInvestigationHooks(
         try {
           await generateCandidatesForEvent(organizationId, eventId);
         } catch (error) {
-          logPost("warn", "Correlation candidate generation failed (isolated)", {
+          logPost.warn( "Correlation candidate generation failed (isolated)", {
             organizationId,
             eventId,
             error:
@@ -70,7 +56,7 @@ export async function runPostIngestionInvestigationHooks(
       try {
         await expirePendingCandidates(organizationId);
       } catch (error) {
-        logPost("warn", "expirePendingCandidates failed (isolated)", {
+        logPost.warn( "expirePendingCandidates failed (isolated)", {
           organizationId,
           error:
             error instanceof Error ? error.message.slice(0, 200) : "unknown",
@@ -79,7 +65,7 @@ export async function runPostIngestionInvestigationHooks(
       try {
         await suggestGroupsFromPendingCandidates(organizationId);
       } catch (error) {
-        logPost("warn", "suggestGroupsFromPendingCandidates failed (isolated)", {
+        logPost.warn( "suggestGroupsFromPendingCandidates failed (isolated)", {
           organizationId,
           error:
             error instanceof Error ? error.message.slice(0, 200) : "unknown",
@@ -88,7 +74,7 @@ export async function runPostIngestionInvestigationHooks(
     }
   } catch (error) {
     // Absolute outer guard — never propagate to sync worker
-    logPost("error", "runPostIngestionInvestigationHooks failed (swallowed)", {
+    logPost.error( "runPostIngestionInvestigationHooks failed (swallowed)", {
       organizationId,
       error: error instanceof Error ? error.message.slice(0, 200) : "unknown",
     });

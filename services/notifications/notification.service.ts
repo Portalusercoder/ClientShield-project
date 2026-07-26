@@ -28,6 +28,7 @@ import {
   ASSIGNMENT_NOTIFICATION_TYPES,
   SLA_NOTIFICATION_TYPES,
 } from "@/types/notifications";
+import { filterInAppRecipients } from "@/services/notifications/notification-preferences.service";
 
 type Db = PrismaClient | Prisma.TransactionClient;
 
@@ -179,12 +180,18 @@ export async function createNotification(
   input: CreateNotificationInput,
   db: Db = prisma
 ): Promise<{ notification: Notification; created: boolean; recipientCount: number }> {
-  const recipientUserIds = uniqueIds(input.recipientUserIds);
   const href = assertInternalHref(input.href);
   const dedupeKey = input.dedupeKey.trim();
   if (!dedupeKey) {
     throw new NotificationValidationError("dedupeKey is required");
   }
+
+  // Respect IN_APP preferences (missing row = enabled). Other channels: store only.
+  const recipientUserIds = await filterInAppRecipients({
+    organizationId: input.organizationId,
+    eventType: input.type,
+    userIds: uniqueIds(input.recipientUserIds),
+  });
 
   await assertRecipientsInOrg(db, input.organizationId, recipientUserIds);
   const attribution = await validateSourceAttribution(db, {
@@ -194,6 +201,11 @@ export async function createNotification(
     clientId: input.clientId,
     assetId: input.assetId,
   });
+
+  if (recipientUserIds.length === 0) {
+    // Still create the notification event for auditability when requested,
+    // but with zero recipients (preference-filtered or empty input).
+  }
 
   try {
     const notification = await db.notification.create({
@@ -224,6 +236,22 @@ export async function createNotification(
             : undefined,
       },
     });
+    const { logger, metrics, updateObservabilityContext } = await import(
+      "@/lib/observability"
+    );
+    updateObservabilityContext({
+      organizationId: input.organizationId,
+    });
+    metrics.inc("notifications_produced");
+    logger.info("notification.produced", {
+      action: "createNotification",
+      notificationId: notification.id,
+      type: input.type,
+      sourceType: input.sourceType,
+      sourceId: input.sourceId,
+      recipientCount: recipientUserIds.length,
+    });
+
     return {
       notification,
       created: true,

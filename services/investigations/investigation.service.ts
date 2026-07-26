@@ -29,6 +29,11 @@ import {
   qualityWarningForMetrics,
   scoreInvestigationOverlap,
 } from "@/services/investigations/investigation-quality.service";
+import {
+  ACTIVE_INVESTIGATION_STATUSES,
+  assertInvestigationTransition,
+  IN_PROGRESS_FAMILY,
+} from "@/services/investigations/status-transitions";
 import type {
   CreateInvestigationInput,
   InvestigationFilters,
@@ -179,7 +184,7 @@ export async function getInvestigationMetrics(organizationId: string) {
       where: { organizationId, status: "OPEN" },
     }),
     prisma.investigationGroup.count({
-      where: { organizationId, status: "INVESTIGATING" },
+      where: { organizationId, status: { in: IN_PROGRESS_FAMILY } },
     }),
     prisma.investigationGroup.count({
       where: { organizationId, status: "CONFIRMED" },
@@ -188,7 +193,7 @@ export async function getInvestigationMetrics(organizationId: string) {
       where: {
         organizationId,
         createdByType: "SYSTEM_SUGGESTED",
-        status: { in: ["OPEN", "INVESTIGATING", "CONFIRMED"] },
+        status: { in: ACTIVE_INVESTIGATION_STATUSES },
       },
     }),
     prisma.investigationGroup.count({
@@ -322,6 +327,15 @@ export async function getInvestigationById(
   const group = await prisma.investigationGroup.findFirst({
     where: { id: groupId, organizationId },
     include: {
+      assignedTo: {
+        select: { id: true, name: true, email: true },
+      },
+      closedBy: {
+        select: { id: true, name: true, email: true },
+      },
+      reopenedBy: {
+        select: { id: true, name: true, email: true },
+      },
       events: {
         where: { removedAt: null },
         include: {
@@ -358,7 +372,17 @@ export async function getInvestigationById(
       },
       activities: {
         orderBy: { createdAt: "desc" },
-        take: 100,
+        take: 200,
+        include: {
+          actor: { select: { id: true, name: true, email: true } },
+        },
+      },
+      notes: {
+        where: { deletedAt: null },
+        orderBy: { createdAt: "asc" },
+        include: {
+          author: { select: { id: true, name: true, email: true } },
+        },
       },
       correlationCandidates: {
         where: { status: "PENDING" },
@@ -424,6 +448,7 @@ export async function createInvestigation(input: {
       createdByType: "ANALYST_CREATED",
       createdByUserId: input.actorId,
       assignedToUserId,
+      assignedAt: assignedToUserId ? new Date() : null,
       groupingExplanation:
         input.data.groupingExplanation?.slice(0, 5000) ??
         "Analyst-created investigation group.",
@@ -451,6 +476,17 @@ export async function createInvestigation(input: {
     },
   });
 
+  if (assignedToUserId) {
+    await appendInvestigationActivity({
+      organizationId: input.organizationId,
+      groupId: group.id,
+      actorUserId: input.actorId,
+      activityType: "ASSIGNED",
+      message: "Investigation assigned on create",
+      metadata: { from: null, to: assignedToUserId },
+    });
+  }
+
   await createAuditLog({
     organizationId: input.organizationId,
     actorId: input.actorId,
@@ -462,6 +498,22 @@ export async function createInvestigation(input: {
       assignedToUserId,
       securityEventIds: eventIds,
     },
+  });
+
+  const { logger, metrics, updateObservabilityContext, workflowCorrelationId } =
+    await import("@/lib/observability");
+  updateObservabilityContext({
+    organizationId: input.organizationId,
+    userId: input.actorId,
+    investigationId: group.id,
+    correlationId: workflowCorrelationId("inv", group.id),
+  });
+  metrics.inc("investigations_created");
+  logger.info("investigation.created", {
+    action: "createInvestigation",
+    investigationId: group.id,
+    eventCount: events.length,
+    severity,
   });
 
   return group;
@@ -853,12 +905,11 @@ export async function startInvestigation(input: {
   groupId: string;
 }) {
   const group = await getGroupOrThrow(input.organizationId, input.groupId);
-  if (group.status === "DISMISSED" || group.status === "CLOSED") {
-    throw new Error("Cannot start a dismissed or closed investigation");
-  }
+  // Prefer recommended IN_PROGRESS; keep INVESTIGATING readable via family helpers.
+  assertInvestigationTransition(group.status, "IN_PROGRESS");
   const updated = await prisma.investigationGroup.update({
     where: { id: group.id },
-    data: { status: "INVESTIGATING" },
+    data: { status: "IN_PROGRESS" },
   });
   await appendInvestigationActivity({
     organizationId: input.organizationId,
@@ -866,6 +917,15 @@ export async function startInvestigation(input: {
     actorUserId: input.actorId,
     activityType: "INVESTIGATION_STARTED",
     message: "Investigation started",
+    metadata: { from: group.status, to: "IN_PROGRESS" },
+  });
+  await createAuditLog({
+    organizationId: input.organizationId,
+    actorId: input.actorId,
+    action: "INVESTIGATION_STATUS_CHANGED",
+    resourceType: "InvestigationGroup",
+    resourceId: group.id,
+    metadata: { from: group.status, to: "IN_PROGRESS" },
   });
   return updated;
 }
@@ -876,9 +936,7 @@ export async function confirmInvestigation(input: {
   groupId: string;
 }) {
   const group = await getGroupOrThrow(input.organizationId, input.groupId);
-  if (group.status === "DISMISSED" || group.status === "CLOSED") {
-    throw new Error("Cannot confirm a dismissed or closed investigation");
-  }
+  assertInvestigationTransition(group.status, "CONFIRMED");
   const updated = await prisma.investigationGroup.update({
     where: { id: group.id },
     data: { status: "CONFIRMED", confirmedAt: new Date() },
@@ -889,6 +947,15 @@ export async function confirmInvestigation(input: {
     actorUserId: input.actorId,
     activityType: "CONFIRMED",
     message: "Investigation confirmed by analyst",
+    metadata: { from: group.status, to: "CONFIRMED" },
+  });
+  await createAuditLog({
+    organizationId: input.organizationId,
+    actorId: input.actorId,
+    action: "INVESTIGATION_STATUS_CHANGED",
+    resourceType: "InvestigationGroup",
+    resourceId: group.id,
+    metadata: { from: group.status, to: "CONFIRMED" },
   });
 
   await notifyInvestigationConfirmed({
@@ -914,6 +981,7 @@ export async function dismissInvestigation(input: {
     throw new Error("Reason is required to dismiss an investigation");
   }
   const group = await getGroupOrThrow(input.organizationId, input.groupId);
+  assertInvestigationTransition(group.status, "DISMISSED");
   const updated = await prisma.investigationGroup.update({
     where: { id: group.id },
     data: {
@@ -929,6 +997,15 @@ export async function dismissInvestigation(input: {
     activityType: "DISMISSED",
     message: "Investigation dismissed",
     note: input.reason,
+    metadata: { from: group.status, to: "DISMISSED" },
+  });
+  await createAuditLog({
+    organizationId: input.organizationId,
+    actorId: input.actorId,
+    action: "INVESTIGATION_STATUS_CHANGED",
+    resourceType: "InvestigationGroup",
+    resourceId: group.id,
+    metadata: { from: group.status, to: "DISMISSED" },
   });
   return updated;
 }
@@ -1003,10 +1080,13 @@ export async function linkToIncident(input: {
     }
   }
 
-  await prisma.investigationGroup.update({
-    where: { id: group.id },
-    data: { status: "LINKED_TO_INCIDENT" },
-  });
+  if (group.status !== "LINKED_TO_INCIDENT") {
+    assertInvestigationTransition(group.status, "LINKED_TO_INCIDENT");
+    await prisma.investigationGroup.update({
+      where: { id: group.id },
+      data: { status: "LINKED_TO_INCIDENT" },
+    });
+  }
 
   await appendInvestigationActivity({
     organizationId: input.organizationId,
@@ -1014,7 +1094,11 @@ export async function linkToIncident(input: {
     actorUserId: input.actorId,
     activityType: "LINKED_TO_INCIDENT",
     message: `Linked to incident ${incident.caseNumber}`,
-    metadata: { incidentId: incident.id },
+    metadata: {
+      incidentId: incident.id,
+      from: group.status,
+      to: "LINKED_TO_INCIDENT",
+    },
   });
 
   return { incidentId: incident.id };
@@ -1100,10 +1184,13 @@ export async function createIncidentFromInvestigation(input: {
     },
   });
 
-  await prisma.investigationGroup.update({
-    where: { id: group.id },
-    data: { status: "LINKED_TO_INCIDENT" },
-  });
+  if (group.status !== "LINKED_TO_INCIDENT") {
+    assertInvestigationTransition(group.status, "LINKED_TO_INCIDENT");
+    await prisma.investigationGroup.update({
+      where: { id: group.id },
+      data: { status: "LINKED_TO_INCIDENT" },
+    });
+  }
 
   await appendInvestigationActivity({
     organizationId: input.organizationId,
@@ -1111,7 +1198,11 @@ export async function createIncidentFromInvestigation(input: {
     actorUserId: input.actorId,
     activityType: "INCIDENT_CREATED",
     message: `Incident created from investigation`,
-    metadata: { incidentId },
+    metadata: {
+      incidentId,
+      from: group.status,
+      to: "LINKED_TO_INCIDENT",
+    },
   });
 
   return { incidentId };
@@ -1308,15 +1399,11 @@ export async function suggestGroupsFromPendingCandidates(
       suggested += 1;
     } catch (error) {
       skipped += 1;
-      // eslint-disable-next-line no-console
-      console.warn(
-        JSON.stringify({
-          service: "investigation.service",
-          message: "suggestGroupsFromPendingCandidates cluster skipped",
-          error:
-            error instanceof Error ? error.message.slice(0, 200) : "unknown",
-        })
-      );
+      const { logger } = await import("@/lib/observability/logger");
+      logger.warn("suggestGroupsFromPendingCandidates cluster skipped", {
+        service: "investigation.service",
+        err: error instanceof Error ? error : new Error("unknown"),
+      });
     }
   }
 

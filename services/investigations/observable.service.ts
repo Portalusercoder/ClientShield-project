@@ -10,19 +10,9 @@ import {
   normalizeUrl,
   normalizeUsername,
 } from "@/services/investigations/observable-normalize";
+import { logger } from "@/lib/observability/logger";
 
-function logObs(level: "warn" | "error", message: string, meta?: object) {
-  // eslint-disable-next-line no-console
-  console[level](
-    JSON.stringify({
-      ts: new Date().toISOString(),
-      service: "observable.service",
-      level,
-      message,
-      ...meta,
-    })
-  );
-}
+const logObs = logger.child({ service: "observable.service" });
 
 export async function upsertObservable(input: {
   organizationId: string;
@@ -205,7 +195,7 @@ export async function extractAndLinkObservablesFromSecurityEvent(
 
     return { linked };
   } catch (error) {
-    logObs("error", "extractAndLinkObservablesFromSecurityEvent failed", {
+    logObs.error( "extractAndLinkObservablesFromSecurityEvent failed", {
       eventId,
       error: error instanceof Error ? error.message.slice(0, 200) : "unknown",
     });

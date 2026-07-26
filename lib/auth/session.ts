@@ -5,6 +5,9 @@ import {
 } from "@/lib/auth/auth-config";
 import { loadDevBypassUser, resolveUserByExternalId, toAuthSession } from "@/lib/auth/identity-mapping";
 import { DEV_USER_ID } from "@/lib/dev-constants";
+import { bindObservabilityContext } from "@/lib/observability/context";
+import { establishRequestContextFromHeaders } from "@/lib/observability/instrument";
+import { AuthorizationError } from "@/lib/observability/errors-core";
 
 /**
  * Resolves the current authenticated ClientShield session.
@@ -60,13 +63,21 @@ export async function getSession(): Promise<AuthSession | null> {
 
 /**
  * Requires an authenticated session or throws Unauthorized.
+ * Binds user/org into the observability context for downstream logs.
  */
 export async function requireSession(): Promise<AuthSession> {
+  await establishRequestContextFromHeaders({ service: "clientshield" });
+
   const session = await getSession();
 
   if (!session) {
-    throw new Error("Unauthorized");
+    throw new AuthorizationError("Unauthorized");
   }
+
+  bindObservabilityContext({
+    organizationId: session.organizationId,
+    userId: session.userId,
+  });
 
   return session;
 }

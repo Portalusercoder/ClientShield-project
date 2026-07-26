@@ -14,19 +14,9 @@ import {
 import { toScoringFields } from "@/services/investigations/investigation-quality.service";
 import { getFileHashesForEvent } from "@/services/investigations/observable.service";
 import { appendInvestigationActivity } from "@/services/investigations/investigation-activity.service";
+import { logger } from "@/lib/observability/logger";
 
-function logCorr(level: "warn" | "error" | "info", message: string, meta?: object) {
-  // eslint-disable-next-line no-console
-  console[level === "info" ? "log" : level](
-    JSON.stringify({
-      ts: new Date().toISOString(),
-      service: "correlation.service",
-      level,
-      message,
-      ...meta,
-    })
-  );
-}
+const logCorr = logger.child({ service: "correlation.service" });
 
 async function toSnapshot(
   organizationId: string,
@@ -154,7 +144,7 @@ export async function generateCandidatesForEvent(
     }
     return { created, updated, skipped };
   } catch (error) {
-    logCorr("error", "generateCandidatesForEvent failed", {
+    logCorr.error("generateCandidatesForEvent failed", {
       organizationId,
       eventId,
       error: error instanceof Error ? error.message.slice(0, 200) : "unknown",
@@ -242,7 +232,7 @@ export async function listPendingCandidates(
   }
 
   if (invalidLegacy.length > 0) {
-    logCorr("warn", "listPendingCandidates hid invalid client-cohort pairs", {
+    logCorr.warn("listPendingCandidates hid invalid client-cohort pairs", {
       organizationId,
       count: invalidLegacy.length,
       sampleIds: invalidLegacy.slice(0, 10).map((r) => r.id),
