@@ -8,6 +8,7 @@ import type { NavItem } from "@/types/dashboard";
 const NAV_ITEMS: NavItem[] = [
   { label: "Dashboard", href: "/", icon: "grid" },
   { label: "Executive", href: "/executive", icon: "chart" },
+  { label: "Analytics", href: "/analytics", icon: "chart" },
   { label: "Clients", href: "/clients", icon: "users" },
   { label: "Assets", href: "/assets", icon: "server" },
   { label: "Vulnerabilities", href: "/vulnerabilities", icon: "shield" },

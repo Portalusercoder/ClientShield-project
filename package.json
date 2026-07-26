@@ -34,6 +34,7 @@
     "test:executive-dashboard": "npx tsx scripts/test-executive-dashboard.ts",
     "test:reports": "npx tsx scripts/test-reports.ts",
     "test:reporting": "npx tsx scripts/test-reporting.ts",
+    "test:analytics": "npx tsx scripts/test-analytics.ts",
     "test:incidents": "npx tsx scripts/test-incidents.ts",
     "test:incident-case": "npx tsx scripts/test-incident-case.ts",
     "test:security-events": "npx tsx scripts/test-security-events.ts",
