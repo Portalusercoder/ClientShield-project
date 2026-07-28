@@ -1,14 +1,6 @@
-import type { Metadata } from "next";
-import { AnalyticsDashboard } from "@/components/analytics/analytics-dashboard";
+import { redirect } from "next/navigation";
 import { requireSession } from "@/lib/auth";
-import {
-  getSecurityAnalytics,
-  parseRangeDays,
-} from "@/services/analytics/analytics.service";
-
-export const metadata: Metadata = {
-  title: "Analytics",
-};
+import { parseRangeDays } from "@/services/analytics/analytics.service";
 
 export const dynamic = "force-dynamic";
 
@@ -16,16 +8,14 @@ interface AnalyticsPageProps {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }
 
-export default async function AnalyticsPage({ searchParams }: AnalyticsPageProps) {
-  const session = await requireSession();
+/** Analytics lives under Security Posture “Over time” — preserve range via query. */
+export default async function AnalyticsPage({
+  searchParams,
+}: AnalyticsPageProps) {
+  await requireSession();
   const params = await searchParams;
   const rangeRaw =
     typeof params.range === "string" ? params.range : undefined;
-
-  const data = await getSecurityAnalytics({
-    organizationId: session.organizationId,
-    rangeDays: parseRangeDays(rangeRaw),
-  });
-
-  return <AnalyticsDashboard data={data} />;
+  const range = parseRangeDays(rangeRaw);
+  redirect(`/executive?view=analytics&range=${range}`);
 }

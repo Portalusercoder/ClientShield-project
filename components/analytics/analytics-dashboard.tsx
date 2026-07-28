@@ -15,6 +15,7 @@ import {
 } from "@/components/ui/card";
 import { DashboardCustomize } from "@/components/ui/dashboard-customize";
 import { EmptyState } from "@/components/ui/empty-state";
+import { PostureInsightTabs } from "@/components/dashboard/executive/posture-insight-tabs";
 import { PageHeader } from "@/components/ui/page-header";
 import { SectionHeader } from "@/components/ui/section-header";
 import {
@@ -113,16 +114,26 @@ function TrendCard({
   );
 }
 
-function RangeSelector({ current }: { current: AnalyticsRangeDays }) {
+function RangeSelector({
+  current,
+  basePath = "/analytics",
+}: {
+  current: AnalyticsRangeDays;
+  basePath?: string;
+}) {
   const options: AnalyticsRangeDays[] = [7, 30, 90];
   return (
     <div className="flex flex-wrap gap-2" role="group" aria-label="Date range">
       {options.map((days) => {
         const active = days === current;
+        const href =
+          basePath === "/executive"
+            ? `/executive?view=analytics&range=${days}`
+            : `${basePath}?range=${days}`;
         return (
           <Link
             key={days}
-            href={`/analytics?range=${days}`}
+            href={href}
             className={
               active
                 ? "inline-flex h-9 items-center rounded-[6px] border border-accent bg-accent-muted px-3 text-sm font-medium text-accent"
@@ -138,7 +149,14 @@ function RangeSelector({ current }: { current: AnalyticsRangeDays }) {
   );
 }
 
-export function AnalyticsDashboard({ data }: { data: SecurityAnalyticsData }) {
+export function AnalyticsDashboard({
+  data,
+  embedded = false,
+}: {
+  data: SecurityAnalyticsData;
+  /** When true, render as Security Posture “Over time” tab content. */
+  embedded?: boolean;
+}) {
   const { kpis, incidents, investigations, findings, securityEvents, sla, risk, analysts } =
     data;
   const layout = useDashboardLayout<AnalyticsSectionId>(
@@ -150,8 +168,12 @@ export function AnalyticsDashboard({ data }: { data: SecurityAnalyticsData }) {
   return (
     <div className="space-y-10">
       <PageHeader
-        title="Analytics"
-        description="Are detection and response getting faster — and is SLA holding — over the selected range? Customize to keep only the sections you need."
+        title={embedded ? "Security Posture" : "Analytics"}
+        description={
+          embedded
+            ? "Are we improving over time — detection, response, and SLA across the selected range?"
+            : "Are detection and response getting faster — and is SLA holding — over the selected range? Customize to keep only the sections you need."
+        }
         actions={
           <div className="flex flex-wrap items-center gap-2">
             <DashboardCustomize
@@ -163,10 +185,17 @@ export function AnalyticsDashboard({ data }: { data: SecurityAnalyticsData }) {
               reset={layout.reset}
               hiddenCount={layout.hiddenCount}
             />
-            <RangeSelector current={data.rangeDays} />
+            <RangeSelector
+              current={data.rangeDays}
+              basePath={embedded ? "/executive" : "/analytics"}
+            />
           </div>
         }
       />
+
+      {embedded ? (
+        <PostureInsightTabs active="analytics" rangeDays={data.rangeDays} />
+      ) : null}
 
       {layout.hiddenCount > 0 ? (
         <p className="rounded-[8px] border border-border bg-surface-elevated/60 px-4 py-2.5 text-sm text-muted">

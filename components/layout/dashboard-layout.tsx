@@ -13,7 +13,7 @@ export async function DashboardLayout({ children }: DashboardLayoutProps) {
 
   return (
     <AppShell
-      sidebar={<Sidebar />}
+      sidebar={<Sidebar role={session?.role ?? null} />}
       header={
         <Header
           userName={session?.name ?? session?.email ?? null}

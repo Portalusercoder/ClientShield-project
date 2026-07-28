@@ -2,63 +2,13 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import type { UserRole } from "@prisma/client";
 import { cn } from "@/lib/utils";
 import { useShell } from "@/components/layout/app-shell";
-
-type NavItem = { label: string; href: string; icon: string };
-
-/**
- * IA for V1.0 — workflow order, not feature dump.
- * Queue → Detect & respond → Posture work → Estate → Insights → Admin
- */
-const NAV_GROUPS: Array<{ label: string; items: NavItem[] }> = [
-  {
-    label: "Queue",
-    items: [
-      { label: "SOC Home", href: "/", icon: "grid" },
-      { label: "Attention", href: "/attention", icon: "flag" },
-      { label: "Notifications", href: "/notifications", icon: "bell" },
-    ],
-  },
-  {
-    label: "Detect & respond",
-    items: [
-      { label: "Security Events", href: "/security-events", icon: "pulse" },
-      { label: "Investigations", href: "/investigations", icon: "search" },
-      { label: "Incidents", href: "/incidents", icon: "alert" },
-    ],
-  },
-  {
-    label: "Posture",
-    items: [
-      { label: "Findings", href: "/vulnerabilities", icon: "shield" },
-      { label: "Remediation", href: "/remediation", icon: "wrench" },
-    ],
-  },
-  {
-    label: "Estate",
-    items: [
-      { label: "Clients", href: "/clients", icon: "users" },
-      { label: "Assets", href: "/assets", icon: "server" },
-      { label: "IoT Devices", href: "/iot-devices", icon: "cpu" },
-    ],
-  },
-  {
-    label: "Insights",
-    items: [
-      { label: "Security Posture", href: "/executive", icon: "gauge" },
-      { label: "Analytics", href: "/analytics", icon: "chart" },
-      { label: "Reports", href: "/reports", icon: "file" },
-    ],
-  },
-  {
-    label: "Admin",
-    items: [
-      { label: "Settings", href: "/settings", icon: "settings" },
-      { label: "Wazuh", href: "/integrations/wazuh", icon: "plug" },
-    ],
-  },
-];
+import {
+  isNavItemActive,
+  navGroupsForRole,
+} from "@/lib/nav/ia";
 
 function NavIcon({ icon, className }: { icon: string; className?: string }) {
   const iconClass = cn("h-[18px] w-[18px] shrink-0", className);
@@ -245,15 +195,18 @@ function NavIcon({ icon, className }: { icon: string; className?: string }) {
 function NavList({
   collapsed,
   onNavigate,
+  role,
 }: {
   collapsed: boolean;
   onNavigate?: () => void;
+  role: UserRole | null;
 }) {
   const pathname = usePathname();
+  const groups = navGroupsForRole(role);
 
   return (
     <nav className="flex-1 overflow-y-auto px-2 py-3 scrollbar-thin" aria-label="Primary">
-      {NAV_GROUPS.map((group) => (
+      {groups.map((group) => (
         <div key={group.label} className="mb-4">
           {!collapsed && (
             <p className="mb-1.5 px-2.5 text-[11px] font-semibold uppercase tracking-wider text-muted">
@@ -262,10 +215,7 @@ function NavList({
           )}
           <ul className="space-y-0.5">
             {group.items.map((item) => {
-              const isActive =
-                item.href === "/"
-                  ? pathname === "/"
-                  : pathname.startsWith(item.href);
+              const isActive = isNavItemActive(pathname, item.href);
 
               return (
                 <li key={item.href}>
@@ -297,7 +247,7 @@ function NavList({
   );
 }
 
-export function Sidebar() {
+export function Sidebar({ role = null }: { role?: UserRole | null }) {
   const { collapsed, toggleCollapsed, mobileOpen, setMobileOpen } = useShell();
 
   return (
@@ -321,7 +271,11 @@ export function Sidebar() {
         aria-hidden={!mobileOpen}
       >
         <SidebarBrand collapsed={false} />
-        <NavList collapsed={false} onNavigate={() => setMobileOpen(false)} />
+        <NavList
+          collapsed={false}
+          role={role}
+          onNavigate={() => setMobileOpen(false)}
+        />
       </aside>
 
       {/* Desktop sidebar */}
@@ -332,7 +286,7 @@ export function Sidebar() {
         )}
       >
         <SidebarBrand collapsed={collapsed} />
-        <NavList collapsed={collapsed} />
+        <NavList collapsed={collapsed} role={role} />
         <div className="border-t border-border p-2">
           <button
             type="button"

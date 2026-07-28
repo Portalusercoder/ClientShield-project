@@ -2,6 +2,7 @@
 
 import { FindingsFiltersBar } from "@/components/findings/findings-filters";
 import { FindingsTable } from "@/components/findings/findings-table";
+import { PostureWorkTabs } from "@/components/findings/posture-work-tabs";
 import { PageHeader } from "@/components/ui/page-header";
 import { SummaryStrip } from "@/components/ui/summary-strip";
 import type { FindingListResult } from "@/types/findings";
@@ -68,8 +69,10 @@ export function FindingsPageClient({
     <div className="space-y-6">
       <PageHeader
         title="Findings"
-        description="Triage scanner observations and validated findings. Counts are unique Findings — not FindingInstances."
+        description="Posture work — triage findings here, then track remediation tasks on the Remediation tab."
       />
+
+      <PostureWorkTabs active="findings" />
 
       <SummaryStrip metrics={cards} />
 

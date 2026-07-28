@@ -6,27 +6,7 @@ import { logoutAction } from "@/app/(auth)/actions";
 import { NotificationBell } from "@/components/notifications/notification-bell";
 import { useShell } from "@/components/layout/app-shell";
 import { Button } from "@/components/ui/button";
-
-const PAGE_TITLES: Record<string, string> = {
-  "/": "SOC Home",
-  "/executive": "Security Posture",
-  "/analytics": "Analytics",
-  "/clients": "Clients",
-  "/assets": "Assets",
-  "/vulnerabilities": "Findings",
-  "/remediation": "Remediation",
-  "/incidents": "Incidents",
-  "/security-events": "Security Events",
-  "/integrations/wazuh": "Wazuh Integration",
-  "/iot-devices": "IoT Devices",
-  "/reports": "Reports",
-  "/settings": "Settings",
-  "/settings/users": "Organization Users",
-  "/investigations": "Investigations",
-  "/investigations/candidates": "Investigation Candidates",
-  "/attention": "Attention",
-  "/notifications": "Notifications",
-};
+import { PAGE_TITLES } from "@/lib/nav/ia";
 
 function getPageTitle(pathname: string): string {
   if (PAGE_TITLES[pathname]) return PAGE_TITLES[pathname];
@@ -40,10 +20,10 @@ function getPageTitle(pathname: string): string {
 function buildBreadcrumbs(
   pathname: string
 ): Array<{ label: string; href?: string }> {
-  if (pathname === "/") return [{ label: "SOC Home" }];
+  if (pathname === "/") return [{ label: "Shift overview" }];
   const parts = pathname.split("/").filter(Boolean);
   const crumbs: Array<{ label: string; href?: string }> = [
-    { label: "SOC Home", href: "/" },
+    { label: "Home", href: "/" },
   ];
   let acc = "";
   for (let i = 0; i < parts.length; i++) {

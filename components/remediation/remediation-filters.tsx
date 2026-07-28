@@ -35,7 +35,8 @@ export function RemediationFiltersBar({
         params.delete(key);
       }
       params.delete("page");
-      router.push(`/remediation?${params.toString()}`);
+      params.set("view", "remediation");
+      router.push(`/vulnerabilities?${params.toString()}`);
     },
     [router, searchParams]
   );

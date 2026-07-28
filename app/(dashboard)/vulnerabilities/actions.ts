@@ -261,6 +261,7 @@ export async function createRemediationTaskAction(
     });
 
     revalidatePath("/remediation");
+    revalidatePath("/vulnerabilities");
     revalidatePath(`/vulnerabilities/${parsed.data.findingId}`);
     revalidatePath("/");
 
@@ -319,6 +320,7 @@ export async function updateRemediationTaskAction(
     });
 
     revalidatePath("/remediation");
+    revalidatePath("/vulnerabilities");
     revalidatePath("/");
 
     return { success: true, data: undefined };

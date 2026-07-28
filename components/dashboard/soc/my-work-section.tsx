@@ -18,9 +18,9 @@ export function MyWorkSection({ cards }: { cards: MyWorkCard[] }) {
   return (
     <section className="space-y-3">
       <SectionHeader
-        title="My queue"
-        description="Work assigned or claimed to you — pick the oldest or highest severity first."
-        action={{ label: "Open Attention", href: "/attention" }}
+        title="Assigned to me"
+        description="Your claimed work — continue in the Work queue for the full urgency board."
+        action={{ label: "Open Work queue", href: "/attention" }}
       />
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         {cards.map((card) => (

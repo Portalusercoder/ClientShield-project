@@ -669,7 +669,7 @@ export function FindingDetailView({
                       }
                       const result = await createRemediationTaskAction(fd);
                       if (result.success) {
-                        router.push("/remediation");
+                        router.push("/vulnerabilities?view=remediation");
                       }
                       return result;
                     })

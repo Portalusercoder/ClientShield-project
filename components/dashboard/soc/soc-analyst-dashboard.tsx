@@ -132,12 +132,12 @@ export function SocAnalystDashboard({
   return (
     <div className="space-y-10">
       <PageHeader
-        title="SOC Home"
-        description="Start with what needs action now — then work your assigned queue. Customize to show only the cards you use."
+        title="Shift overview"
+        description="What changed this shift — then open the Work queue to act. Pipeline and recent activity stay secondary."
         actions={
           <div className="flex flex-wrap gap-2">
             <DashboardCustomize
-              title="Customize SOC Home"
+              title="Customize shift overview"
               sections={SOC_SECTIONS}
               isVisible={layout.isVisible}
               setSection={layout.setSection}
@@ -149,7 +149,7 @@ export function SocAnalystDashboard({
               href="/attention"
               className="inline-flex h-9 items-center rounded-[6px] border border-accent bg-accent px-3 text-sm font-medium text-white shadow-sm hover:opacity-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
             >
-              Open Attention queue
+              Open Work queue
             </Link>
             <Link
               href="/security-events?status=NEW"
@@ -173,9 +173,9 @@ export function SocAnalystDashboard({
       {isVisible("doNow") ? (
         <section className="space-y-3">
           <SectionHeader
-            title="Do now"
-            description="SLA risk and untriaged detections — the highest-urgency work in the org."
-            action={{ label: "View Attention", href: "/attention" }}
+            title="Shift signals"
+            description="Highest-urgency indicators — work them in the Work queue."
+            action={{ label: "Open Work queue", href: "/attention" }}
           />
           <SummaryStrip
             columns={4}
@@ -381,7 +381,7 @@ export function SocAnalystDashboard({
           <SectionHeader
             title="Recent activity"
             description="Latest movement across the response workflow."
-            action={{ label: "Open Attention", href: "/attention" }}
+            action={{ label: "Open Work queue", href: "/attention" }}
           />
           <div className="grid gap-6 xl:grid-cols-2">
             {isVisible("recentEvents") ? (

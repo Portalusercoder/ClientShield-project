@@ -1,12 +1,15 @@
 import type { Metadata } from "next";
 import { Suspense } from "react";
 import { FindingsPageClient } from "@/components/findings/findings-page-client";
-import { requireSession } from "@/lib/auth";
+import { RemediationPageClient } from "@/components/remediation/remediation-page-client";
+import { hasMinimumRole, requireSession } from "@/lib/auth";
 import { listFindings } from "@/services/findings.service";
+import { listRemediationTasks } from "@/services/remediation.service";
 import type {
   FindingSeverity,
   FindingSource,
   FindingStatus,
+  RemediationStatus,
   TriagePriority,
 } from "@prisma/client";
 
@@ -25,6 +28,51 @@ export default async function VulnerabilitiesPage({
 }: VulnerabilitiesPageProps) {
   const session = await requireSession();
   const params = await searchParams;
+  const view =
+    typeof params.view === "string" ? params.view : "findings";
+
+  if (view === "remediation") {
+    const search = typeof params.search === "string" ? params.search : undefined;
+    const status = typeof params.status === "string" ? params.status : "ALL";
+    const severity =
+      typeof params.severity === "string" ? params.severity : "ALL";
+    const assignedToUserId =
+      typeof params.assignedToUserId === "string"
+        ? params.assignedToUserId
+        : "ALL";
+    const overdueOnly =
+      params.overdueOnly === "true" || params.overdueOnly === "1";
+    const page = typeof params.page === "string" ? Number(params.page) : 1;
+
+    const data = await listRemediationTasks(session.organizationId, {
+      search,
+      status: status as RemediationStatus | "ALL",
+      severity: severity as FindingSeverity | "ALL",
+      assignedToUserId,
+      overdueOnly,
+      page,
+      pageSize: 20,
+    });
+
+    return (
+      <Suspense
+        fallback={
+          <div className="text-sm text-muted">Loading remediation tasks...</div>
+        }
+      >
+        <RemediationPageClient
+          data={data}
+          canUpdate={hasMinimumRole(session, "ANALYST")}
+          currentSearch={search}
+          currentStatus={status}
+          currentSeverity={severity}
+          currentAssignedToUserId={assignedToUserId}
+          currentOverdueOnly={overdueOnly}
+          showPostureTabs
+        />
+      </Suspense>
+    );
+  }
 
   const search = typeof params.search === "string" ? params.search : undefined;
   const clientId =

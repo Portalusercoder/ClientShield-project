@@ -1,7 +1,9 @@
 "use client";
 
+import { PostureWorkTabs } from "@/components/findings/posture-work-tabs";
 import { RemediationFiltersBar } from "@/components/remediation/remediation-filters";
 import { RemediationTable } from "@/components/remediation/remediation-table";
+import { PageHeader } from "@/components/ui/page-header";
 import type { RemediationListResult } from "@/types/findings";
 
 interface RemediationPageClientProps {
@@ -12,6 +14,8 @@ interface RemediationPageClientProps {
   currentSeverity?: string;
   currentAssignedToUserId?: string;
   currentOverdueOnly?: boolean;
+  /** When true, show Findings/Remediation tabs (hosted under /vulnerabilities). */
+  showPostureTabs?: boolean;
 }
 
 export function RemediationPageClient({
@@ -22,18 +26,20 @@ export function RemediationPageClient({
   currentSeverity = "ALL",
   currentAssignedToUserId = "ALL",
   currentOverdueOnly = false,
+  showPostureTabs = false,
 }: RemediationPageClientProps) {
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold text-foreground">
-          Remediation Management
-        </h1>
-        <p className="mt-1 text-sm text-muted">
-          Track remediation tasks linked to security findings across clients and
-          assets.
-        </p>
-      </div>
+      <PageHeader
+        title={showPostureTabs ? "Findings" : "Remediation"}
+        description={
+          showPostureTabs
+            ? "Posture work — track remediation tasks linked to findings."
+            : "Track remediation tasks linked to security findings across clients and assets."
+        }
+      />
+
+      {showPostureTabs ? <PostureWorkTabs active="remediation" /> : null}
 
       <RemediationFiltersBar
         users={data.users}

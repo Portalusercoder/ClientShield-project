@@ -1,17 +1,19 @@
 import Link from "next/link";
+import { Suspense } from "react";
 import { PageHeader } from "@/components/ui/page-header";
 import { SectionHeader } from "@/components/ui/section-header";
 import { ExecutiveClientSection } from "@/components/dashboard/executive/client-section";
 import { ExecutiveKpiSection } from "@/components/dashboard/executive/kpi-section";
 import { ExecutiveOperationalSection } from "@/components/dashboard/executive/operational-section";
 import { ExecutivePlatformHealthSection } from "@/components/dashboard/executive/platform-health-section";
+import { PostureInsightTabs } from "@/components/dashboard/executive/posture-insight-tabs";
 import { ExecutiveRiskSection } from "@/components/dashboard/executive/risk-section";
 import { ExecutiveSlaSection } from "@/components/dashboard/executive/sla-section";
 import { ExecutiveTrendsSection } from "@/components/dashboard/executive/trends-section";
 import type { ExecutiveDashboardData } from "@/types/executive-dashboard";
 
 /**
- * Primary question: Is the organization's security posture acceptable?
+ * Primary question: Is the organization's security posture acceptable right now?
  * Order: posture → risk → SLA → clients → trends → ops (secondary)
  */
 export function ExecutiveDashboard({ data }: { data: ExecutiveDashboardData }) {
@@ -19,14 +21,14 @@ export function ExecutiveDashboard({ data }: { data: ExecutiveDashboardData }) {
     <div className="space-y-10">
       <PageHeader
         title="Security Posture"
-        description="Executive view of whether risk, SLA, and exposure are within acceptable bounds."
+        description="Is posture acceptable now — risk, SLA, and exposure within bounds?"
         actions={
           <div className="flex flex-wrap gap-2">
             <Link
-              href="/analytics"
+              href="/executive?view=analytics&range=30"
               className="inline-flex h-9 items-center rounded-[6px] border border-border bg-surface px-3 text-sm font-medium text-foreground shadow-sm hover:bg-surface-elevated focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
             >
-              View trends in Analytics
+              View over time
             </Link>
             <Link
               href="/reports"
@@ -37,6 +39,10 @@ export function ExecutiveDashboard({ data }: { data: ExecutiveDashboardData }) {
           </div>
         }
       />
+
+      <Suspense fallback={null}>
+        <PostureInsightTabs active="now" />
+      </Suspense>
 
       <ExecutiveKpiSection kpis={data.kpis} />
       <ExecutiveRiskSection risk={data.risk} />
